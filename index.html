@@ -3,23 +3,505 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LEOrbit</title>
+    <title>Satellite Visualizer</title>
     <style>
       body {
         margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        overflow: hidden;
+      }
+      
+      #ui-panel {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        background: rgba(10, 10, 20, 0.85);
+        border: 1px solid rgba(100, 150, 255, 0.3);
+        border-radius: 12px;
+        padding: 20px;
+        color: #fff;
+        min-width: 280px;
+        max-width: 320px;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        max-height: calc(100vh - 40px);
+        overflow-y: auto;
+      }
+      
+      #ui-panel h2 {
+        margin: 0 0 15px 0;
+        font-size: 18px;
+        font-weight: 600;
+        color: #7eb8ff;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      
+      #ui-panel h2::before {
+        content: '🛰️';
+      }
+      
+      .section-divider {
+        height: 1px;
+        background: rgba(255, 255, 255, 0.1);
+        margin: 18px 0;
+      }
+      
+      .section-title {
+        font-size: 11px;
+        color: #7eb8ff;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 12px;
+        font-weight: 600;
+      }
+      
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+      }
+      
+      .stat-label {
+        color: #aaa;
+        font-size: 13px;
+      }
+      
+      .stat-value {
+        font-size: 20px;
+        font-weight: 700;
+        color: #fff;
+      }
+      
+      .control-group {
+        margin-top: 15px;
+      }
+      
+      .control-group label {
+        display: block;
+        font-size: 12px;
+        color: #aaa;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      
+      .color-picker-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      
+      input[type="color"] {
+        border: none;
+        width: 40px;
+        height: 30px;
+        border-radius: 6px;
+        cursor: pointer;
+        background: transparent;
+      }
+      
+      input[type="color"]::-webkit-color-swatch-wrapper {
+        padding: 0;
+      }
+      
+      input[type="color"]::-webkit-color-swatch {
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+      }
+      
+      .toggle-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 0;
+      }
+      
+      .toggle-label {
+        font-size: 14px;
+      }
+      
+      .toggle-switch {
+        position: relative;
+        width: 46px;
+        height: 24px;
+      }
+      
+      .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      
+      .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(255, 255, 255, 0.1);
+        transition: 0.3s;
+        border-radius: 24px;
+      }
+      
+      .toggle-slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background-color: #fff;
+        transition: 0.3s;
+        border-radius: 50%;
+      }
+      
+      .toggle-switch input:checked + .toggle-slider {
+        background-color: #4a9eff;
+      }
+      
+      .toggle-switch input:checked + .toggle-slider:before {
+        transform: translateX(22px);
+      }
+      
+      .slider-row {
+        margin-top: 8px;
+      }
+      
+      .slider-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      
+      .slider-value {
+        font-size: 13px;
+        color: #7eb8ff;
+        font-weight: 600;
+      }
+      
+      input[type="range"] {
+        width: 100%;
+        height: 6px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.1);
+        outline: none;
+      }
+      
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #4a9eff;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      
+      input[type="range"]::-webkit-slider-thumb:hover {
+        background: #7eb8ff;
+      }
+      
+      input[type="range"]::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #4a9eff;
+        cursor: pointer;
+        border: none;
+      }
+      
+      #altitude-legend {
+        margin-top: 12px;
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        display: none;
+      }
+      
+      #altitude-legend.visible {
+        display: block;
+      }
+      
+      .legend-title {
+        font-size: 11px;
+        color: #888;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      
+      .gradient-bar {
+        height: 12px;
+        border-radius: 6px;
+        background: linear-gradient(to right, #00ff88, #ffff00, #ff6600, #ff0066);
+        margin-bottom: 6px;
+      }
+      
+      .legend-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 10px;
+        color: #aaa;
+      }
+      
+      /* Location Search Styles */
+      .location-input-wrapper {
+        position: relative;
+        margin-bottom: 12px;
+      }
+      
+      .location-input-wrapper label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      
+      .location-input-wrapper label .marker-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+      }
+      
+      .location-input-wrapper label .marker-dot.start {
+        background: #00ff88;
+      }
+      
+      .location-input-wrapper label .marker-dot.end {
+        background: #ff4466;
+      }
+      
+      .location-input {
+        width: 100%;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.2s, background 0.2s;
+        box-sizing: border-box;
+      }
+      
+      .location-input::placeholder {
+        color: rgba(255, 255, 255, 0.4);
+      }
+      
+      .location-input:focus {
+        border-color: rgba(100, 150, 255, 0.5);
+        background: rgba(255, 255, 255, 0.12);
+      }
+      
+      .location-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: rgba(15, 15, 30, 0.95);
+        border: 1px solid rgba(100, 150, 255, 0.3);
+        border-radius: 8px;
+        margin-top: 4px;
+        max-height: 200px;
+        overflow-y: auto;
+        z-index: 100;
+        display: none;
+        backdrop-filter: blur(10px);
+      }
+      
+      .location-dropdown.visible {
+        display: block;
+      }
+      
+      .dropdown-item {
+        padding: 10px 12px;
+        font-size: 13px;
+        color: #ccc;
+        cursor: pointer;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        transition: background 0.15s;
+      }
+      
+      .dropdown-item:last-child {
+        border-bottom: none;
+      }
+      
+      .dropdown-item:hover {
+        background: rgba(100, 150, 255, 0.15);
+        color: #fff;
+      }
+      
+      .dropdown-item.loading,
+      .dropdown-item.no-results,
+      .dropdown-item.error {
+        color: #888;
+        cursor: default;
+        font-style: italic;
+      }
+      
+      .dropdown-item.loading:hover,
+      .dropdown-item.no-results:hover,
+      .dropdown-item.error:hover {
+        background: transparent;
+        color: #888;
+      }
+      
+      .dropdown-item.error {
+        color: #ff6666;
+      }
+      
+      #loading {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #fff;
+        font-size: 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 15px;
+      }
+      
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(255, 255, 255, 0.1);
+        border-top-color: #4a9eff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      
+      #loading.hidden {
+        display: none;
+      }
+      
+      /* Scrollbar styling for the panel */
+      #ui-panel::-webkit-scrollbar {
+        width: 6px;
+      }
+      
+      #ui-panel::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 3px;
+      }
+      
+      #ui-panel::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 3px;
+      }
+      
+      #ui-panel::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
       }
     </style>
     <script type="importmap">
-			{
-				"imports": {
-					"three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
-                    "jsm/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
-                }
-			}
-	</script>
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+          "jsm/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+        }
+      }
+    </script>
   </head>
   <body>
-    <script type="module" src="Example.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/5.0.0/satellite.min.js"></script>
+    <div id="loading">
+      <div class="spinner"></div>
+      <span>Loading satellites...</span>
+    </div>
+    
+    <div id="ui-panel">
+      <h2>Satellite Visualizer</h2>
+      
+      <div class="stat-row">
+        <span class="stat-label">Total Satellites</span>
+        <span class="stat-value" id="sat-count">0</span>
+      </div>
+      
+      <!-- Location Search Section -->
+      <div class="section-divider"></div>
+      <div class="section-title">Route Selection</div>
+      
+      <div class="location-input-wrapper">
+        <label>
+          <span class="marker-dot start"></span>
+          Start Location
+        </label>
+        <input type="text" id="start-location" class="location-input" placeholder="Search for a city...">
+        <div id="start-dropdown" class="location-dropdown"></div>
+      </div>
+      
+      <div class="location-input-wrapper">
+        <label>
+          <span class="marker-dot end"></span>
+          End Location
+        </label>
+        <input type="text" id="end-location" class="location-input" placeholder="Search for a city...">
+        <div id="end-dropdown" class="location-dropdown"></div>
+      </div>
+      
+      <!-- Satellite Controls Section -->
+      <div class="section-divider"></div>
+      <div class="section-title">Display Settings</div>
+      
+      <div class="control-group">
+        <label>Satellite Color</label>
+        <div class="color-picker-row">
+          <input type="color" id="sat-color" value="#ffffff">
+          <span id="color-hex">#ffffff</span>
+        </div>
+      </div>
+      
+      <div class="control-group">
+        <label>Satellite Size</label>
+        <div class="slider-row">
+          <div class="slider-header">
+            <span></span>
+            <span class="slider-value" id="size-value">0.75x</span>
+          </div>
+          <input type="range" id="sat-size" min="0.2" max="3" step="0.05" value="0.75">
+        </div>
+      </div>
+      
+      <div class="control-group">
+        <div class="toggle-row">
+          <span class="toggle-label">Altitude Mode</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="altitude-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        
+        <div id="altitude-legend">
+          <div class="legend-title">Altitude Range</div>
+          <div class="gradient-bar"></div>
+          <div class="legend-labels">
+            <span id="alt-min">200 km</span>
+            <span id="alt-max">600 km</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="control-group">
+        <div class="toggle-row">
+          <span class="toggle-label">Show Stars</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="stars-toggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+    
+    <script type="module" src="index.js"></script>
   </body>
 </html>
