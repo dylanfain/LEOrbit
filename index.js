@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'jsm/controls/OrbitControls.js';
 import { SatelliteConstellation, EARTH_RADIUS_KM } from './Satellitedataprocessor.js';
 import { LocationService } from './LocationService.js';
+import { createStarfield } from './starfield.js';
 
 // ============== Scene Setup ==============
 const w = window.innerWidth;
@@ -26,34 +27,6 @@ controls.minDistance = 1.2;              // Don't allow zooming inside Earth
 controls.maxDistance = 10;               // Max zoom out distance
 
 // ============== Starfield ==============
-function createStarfield() {
-    const starsGeometry = new THREE.BufferGeometry();
-    const starCount = 5000;
-    const positions = new Float32Array(starCount * 3);
-    
-    for (let i = 0; i < starCount * 3; i += 3) {
-        const radius = 400 + Math.random() * 100;
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
-        
-        positions[i] = radius * Math.sin(phi) * Math.cos(theta);
-        positions[i + 1] = radius * Math.sin(phi) * Math.sin(theta);
-        positions[i + 2] = radius * Math.cos(phi);
-    }
-    
-    starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    
-    const starsMaterial = new THREE.PointsMaterial({
-        color: 0xffffff,
-        size: 1.2,
-        sizeAttenuation: true
-    });
-    
-    const starfield = new THREE.Points(starsGeometry, starsMaterial);
-    starfield.name = 'starfield';
-    return starfield;
-}
-
 const starfield = createStarfield();
 scene.add(starfield);
 

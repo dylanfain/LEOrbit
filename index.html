@@ -403,6 +403,35 @@
       #ui-panel::-webkit-scrollbar-thumb:hover {
         background: rgba(255, 255, 255, 0.3);
       }
+      
+      /* Navigation Tabs */
+      #top-tabs {
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 12px;
+        z-index: 30;
+      }
+      .tab {
+        padding: 8px 18px;
+        border-radius: 20px;
+        background: rgba(30,60,120,0.6);
+        color: #cfe4ff;
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+      }
+      .tab:hover {
+        background: rgba(80,140,255,0.8);
+        color: #fff;
+      }
+      .tab.active {
+        background: rgba(80,140,255,1);
+        color: #fff;
+      }
     </style>
     <script type="importmap">
       {
@@ -414,6 +443,11 @@
     </script>
   </head>
   <body>
+    <div id="top-tabs">
+      <a href="index.html" class="tab active">3D Visualization</a>
+      <a href="analytics.html" class="tab">Analytics</a>
+    </div>
+    
     <div id="loading">
       <div class="spinner"></div>
       <span>Loading satellites...</span>
