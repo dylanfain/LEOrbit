@@ -1,9 +1,12 @@
 {
   "name": "leorbit",
   "version": "1.0.0",
-  "description": "",
+  "type": "module",
+  "description": "LEO satellite orbit visualizer using Three.js",
   "main": "Example.js",
   "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "repository": {
@@ -13,12 +16,16 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "bugs": {
     "url": "https://github.com/dylanfain/LEOrbit/issues"
   },
   "homepage": "https://github.com/dylanfain/LEOrbit#readme",
+  "dependencies": {
+    "express": "^4.18.2",
+    "satellite.js": "^6.0.1"
+  },
   "devDependencies": {
-    "jest": "^30.2.0"
+    "jest": "^30.2.0",
+    "serve": "^14.2.0"
   }
 }
