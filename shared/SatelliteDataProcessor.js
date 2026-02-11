@@ -226,11 +226,14 @@ export function createSatelliteModule(satelliteLib, options = {}) {
             });
 
             const adjacencyList = new Map();
+            this.satellites.forEach((sat) => {
+                adjacencyList.set(sat.id, []);
+            });
             let totalLinks = 0;
 
             for (let i = 0; i < this.satellites.length; i++) {
                 const sat1 = this.satellites[i];
-                adjacencyList.set(sat1.id, []);
+                const sat1Edges = adjacencyList.get(sat1.id);
 
                 for (let j = i + 1; j < this.satellites.length; j++) {
                     const sat2 = this.satellites[j];
@@ -250,17 +253,14 @@ export function createSatelliteModule(satelliteLib, options = {}) {
                         sat2.neighborDistances.set(sat1.id, distance);
                         sat2.neighborLatencies.set(sat1.id, latency);
 
-                        adjacencyList.get(sat1.id).push({
+                        sat1Edges.push({
                             target: sat2.id,
                             distance,
                             latency
                         });
 
-                        if (!adjacencyList.has(sat2.id)) {
-                            adjacencyList.set(sat2.id, []);
-                        }
-
-                        adjacencyList.get(sat2.id).push({
+                        const sat2Edges = adjacencyList.get(sat2.id);
+                        sat2Edges.push({
                             target: sat1.id,
                             distance,
                             latency
@@ -287,9 +287,14 @@ export function createSatelliteModule(satelliteLib, options = {}) {
             return this.satelliteMap.get(id);
         }
 
-        findClosestSatelliteToLocation(latitude, longitude, altitude = 0) {
+        findClosestSatelliteToLocation(latitude, longitude, altitude = 0, options = {}) {
+            const { minNeighbors = 0 } = options;
+
             let closestSat = null;
-            let minDistance = Infinity;
+            let closestDistance = Infinity;
+
+            let bestConnectedSat = null;
+            let bestConnectedDistance = Infinity;
 
             this.satellites.forEach((sat) => {
                 const satGeo = sat.getGeodeticDegrees();
@@ -305,15 +310,28 @@ export function createSatelliteModule(satelliteLib, options = {}) {
                     altDiff ** 2
                 );
 
-                if (distance < minDistance) {
-                    minDistance = distance;
+                if (distance < closestDistance) {
+                    closestDistance = distance;
                     closestSat = sat;
+                }
+
+                const neighborCount = sat.visibleNeighbors?.length ?? 0;
+                if (
+                    neighborCount >= minNeighbors &&
+                    distance < bestConnectedDistance
+                ) {
+                    bestConnectedDistance = distance;
+                    bestConnectedSat = sat;
                 }
             });
 
+            const chosenSat = bestConnectedSat ?? closestSat;
+            const chosenDistance = bestConnectedSat ? bestConnectedDistance : closestDistance;
+
             return {
-                satellite: closestSat,
-                distance: minDistance
+                satellite: chosenSat,
+                distance: chosenDistance,
+                neighborCount: chosenSat?.visibleNeighbors?.length ?? 0
             };
         }
 

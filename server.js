@@ -57,26 +57,45 @@ app.post('/api/route', (req, res) => {
     const now = new Date();
     constellation.updateAllPositions(now);
     constellation.buildNetworkGraph(MAX_LINK_RANGE_KM);
-    const networkState = constellation.exportNetworkState();
 
-    const startMatch = constellation.findClosestSatelliteToLocation(start.lat, start.lon);
-    const endMatch = constellation.findClosestSatelliteToLocation(end.lat, end.lon);
+    const startMatch = constellation.findClosestSatelliteToLocation(
+        start.lat,
+        start.lon,
+        0,
+        { minNeighbors: 1 }
+    );
+    const endMatch = constellation.findClosestSatelliteToLocation(
+        end.lat,
+        end.lon,
+        0,
+        { minNeighbors: 1 }
+    );
 
     if (!startMatch?.satellite || !endMatch?.satellite) {
+        console.warn('[route] Unable to resolve satellites for request', {
+            startNeighbors: startMatch?.neighborCount,
+            endNeighbors: endMatch?.neighborCount
+        });
         return res.status(503).json({ error: 'Unable to locate satellites for the requested positions' });
     }
 
     const routeResult = dijkstraHopShortestPath(
-        networkState,
+        { graph: constellation.networkGraph },
         startMatch.satellite.id,
         endMatch.satellite.id
     );
 
     if (!routeResult) {
+        console.warn('[route] No viable path found', {
+            startId: startMatch.satellite.id,
+            endId: endMatch.satellite.id,
+            startNeighbors: startMatch.neighborCount,
+            endNeighbors: endMatch.neighborCount
+        });
         return res.status(503).json({ error: 'No viable route between the selected locations' });
     }
 
-    const estimatedLatencyMs = computePathLatency(routeResult.path, networkState.graph);
+    const estimatedLatencyMs = computePathLatency(routeResult.path, constellation.networkGraph);
 
     currentRoute = {
         startLocation: start,
@@ -118,10 +137,12 @@ function computePathLatency(pathNodes, graph) {
 
     let total = 0;
     for (let i = 0; i < pathNodes.length - 1; i++) {
-        const from = String(pathNodes[i]);
-        const to = pathNodes[i + 1];
-        const edges = graph[from] || [];
-        const edge = edges.find((neighbor) => Number(neighbor.target) === Number(to));
+        const fromId = Number(pathNodes[i]);
+        const toId = Number(pathNodes[i + 1]);
+        const edges = graph instanceof Map
+            ? graph.get(fromId) || []
+            : graph[String(fromId)] || graph[fromId] || [];
+        const edge = edges.find((neighbor) => Number(neighbor.target) === toId);
 
         if (edge && Number.isFinite(Number(edge.latency))) {
             total += Number(edge.latency);
@@ -142,6 +163,8 @@ function formatSatelliteMatch(match) {
         id: match.satellite.id,
         name: match.satellite.name,
         distanceKm,
+        componentId: match.componentId ?? null,
+        neighborCount: match.neighborCount ?? (match.satellite.visibleNeighbors?.length ?? 0),
         geodetic: match.satellite.getGeodeticDegrees()
     };
 }
@@ -173,6 +196,10 @@ function logRouteDetails(routePayload) {
     console.log(line('End Location', routePayload.endLocation?.displayName));
     console.log(satLine('Start', routePayload.startSatellite));
     console.log(satLine('End', routePayload.endSatellite));
+    console.log(line('Start Component', routePayload.startSatellite?.componentId));
+    console.log(line('End Component', routePayload.endSatellite?.componentId));
+    console.log(line('Start Neighbors', routePayload.startSatellite?.neighborCount));
+    console.log(line('End Neighbors', routePayload.endSatellite?.neighborCount));
     console.log(line('Hop Count', routePayload.hops));
     console.log(line('Latency (ms)', routePayload.estimatedLatencyMs));
     console.log(line('Path (ids)', routePayload.path?.join(' -> ') || 'n/a'));

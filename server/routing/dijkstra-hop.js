@@ -22,9 +22,9 @@ export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
 
   // Collect all node ids that appear as keys or as targets
   const nodes = new Set();
-  for (const key of Object.keys(graph)) {
+  for (const [key, edges] of graph.entries()) {
     nodes.add(Number(key));
-    for (const edge of graph[key] || []) {
+    for (const edge of edges || []) {
       nodes.add(edge.target);
     }
   }
@@ -63,7 +63,7 @@ export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
 
     visited.add(u);
 
-    const neighbors = graph[String(u)] || [];
+    const neighbors = graph.get(Number(u)) || [];
     for (const edge of neighbors) {
       const v = edge.target;
       if (visited.has(v)) continue;
@@ -102,24 +102,31 @@ export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
 }
 
 function normalizeGraph(graph) {
-  const result = {};
+  if (graph instanceof Map) {
+    return graph;
+  }
+
+  const result = new Map();
 
   for (const [nodeId, edges] of Object.entries(graph)) {
     if (!Array.isArray(edges)) {
       throw new Error(`Invalid adjacency list for node ${nodeId}`);
     }
 
-    result[nodeId] = edges.map((edge) => {
-      if (edge == null || !Number.isFinite(Number(edge.target))) {
-        throw new Error(`Edge for node ${nodeId} is missing a numeric target`);
-      }
+    result.set(
+      Number(nodeId),
+      edges.map((edge) => {
+        if (edge == null || !Number.isFinite(Number(edge.target))) {
+          throw new Error(`Edge for node ${nodeId} is missing a numeric target`);
+        }
 
-      return {
-        target: Number(edge.target),
-        distance: Number(edge.distance) || null,
-        latency: Number(edge.latency) || null
-      };
-    });
+        return {
+          target: Number(edge.target),
+          distance: Number(edge.distance) || null,
+          latency: Number(edge.latency) || null
+        };
+      })
+    );
   }
 
   return result;
