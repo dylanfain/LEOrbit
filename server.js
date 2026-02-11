@@ -52,6 +52,8 @@ app.post('/api/route', (req, res) => {
         });
     }
 
+    logRouteRequest(start, end);
+
     const now = new Date();
     constellation.updateAllPositions(now);
     constellation.buildNetworkGraph(MAX_LINK_RANGE_KM);
@@ -88,6 +90,7 @@ app.post('/api/route', (req, res) => {
     };
 
     logRouteSummary(start, end, routeResult.hops, estimatedLatencyMs);
+    logRouteDetails(currentRoute);
 
     res.json(currentRoute);
 });
@@ -151,6 +154,41 @@ function logRouteSummary(start, end, hops, latencyMs) {
     console.log(
         `[route] ${describe(start)} -> ${describe(end)} | ${hops} hops | ~${latencyMs.toFixed(2)} ms`
     );
+}
+
+function logRouteDetails(routePayload) {
+    const line = (label, value) => `   ${label.padEnd(18, ' ')}${value ?? '-'}`;
+    const satLine = (prefix, sat) =>
+        sat
+            ? [
+                  line(`${prefix} ID`, sat.id),
+                  line(`${prefix} Name`, sat.name),
+                  line(`${prefix} Distance`, sat.distanceKm ? `${sat.distanceKm} km` : '-')
+              ].join('\n')
+            : line(`${prefix} Satellite`, 'not resolved');
+
+    console.log('\n[route:details]');
+    console.log(line('Timestamp', routePayload.timestamp));
+    console.log(line('Start Location', routePayload.startLocation?.displayName));
+    console.log(line('End Location', routePayload.endLocation?.displayName));
+    console.log(satLine('Start', routePayload.startSatellite));
+    console.log(satLine('End', routePayload.endSatellite));
+    console.log(line('Hop Count', routePayload.hops));
+    console.log(line('Latency (ms)', routePayload.estimatedLatencyMs));
+    console.log(line('Path (ids)', routePayload.path?.join(' -> ') || 'n/a'));
+    console.log(line('Notes', 'Using just Dijkstra\'s algorithm right now'));
+    console.log('[route:details:end]\n');
+}
+
+function logRouteRequest(start, end) {
+    const fmt = (point) =>
+        point
+            ? `${point.displayName ?? 'Custom'} (${Number(point.lat).toFixed(2)}, ${Number(point.lon).toFixed(2)})`
+            : 'unset';
+
+    console.log('[route:req] Received request, loading constellation state...');
+    console.log(`   start => ${fmt(start)}`);
+    console.log(`   end   => ${fmt(end)}`);
 }
 
 async function start() {

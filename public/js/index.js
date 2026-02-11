@@ -223,11 +223,35 @@ const locationService = new LocationService();
 let startLocation = null;
 let endLocation = null;
 
+const runButton = document.getElementById('run-route');
+let routeLoading = false;
+
+function updateRunButtonState() {
+    if (!runButton) return;
+    const ready = Boolean(startLocation && endLocation);
+    runButton.disabled = !ready || routeLoading;
+    runButton.textContent = routeLoading ? 'Running...' : 'Run Route';
+}
+
+runButton?.addEventListener('click', () => {
+    if (runButton.disabled) return;
+    sendRouteToBackend();
+});
+
+updateRunButtonState();
+
 // Send route data to backend
 async function sendRouteToBackend() {
     if (!startLocation || !endLocation) {
         return;
     }
+
+    routeLoading = true;
+    updateRunButtonState();
+    console.log('[route] Submitting request to backend...', {
+        start: startLocation.displayName,
+        end: endLocation.displayName
+    });
 
     try {
         const response = await fetch('/api/route', {
@@ -258,6 +282,9 @@ async function sendRouteToBackend() {
     } catch (error) {
         setRouteStats('-', '-');
         console.error('Failed to send route to backend:', error);
+    } finally {
+        routeLoading = false;
+        updateRunButtonState();
     }
 }
 
@@ -267,6 +294,12 @@ function setupLocationInput(inputId, dropdownId, isStart) {
     
     input.addEventListener('input', async (e) => {
         const query = e.target.value;
+        if (isStart) {
+            startLocation = null;
+        } else {
+            endLocation = null;
+        }
+        updateRunButtonState();
         
         if (query.length < 3) {
             dropdown.classList.remove('visible');
@@ -309,8 +342,7 @@ function setupLocationInput(inputId, dropdownId, isStart) {
                         lookAtLocation(selected.lat, selected.lon);
                     }
                     
-                    // Send to backend after each selection
-                    sendRouteToBackend();
+                    updateRunButtonState();
                 });
             });
             

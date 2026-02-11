@@ -9,7 +9,7 @@ npm install
 npm start
 ```
 
-Open http://localhost:3000 and use the UI panel to pick start/end locations. The frontend fetches fresh constellation data from `/data/starlink.tle`, and the backend responds with the closest satellites plus the computed inter-satellite path.
+Open http://localhost:3000 and use the UI panel to pick start/end locations and click "Run Route". The frontend fetches fresh constellation data from `/data/starlink.tle`, and the backend responds with the closest satellites plus the computed inter-satellite path.
 
 ## Project Structure
 
@@ -39,7 +39,7 @@ The Express server statically serves `public/` and exposes `/shared/...` so brow
 ## Architecture Overview
 
 1. **Shared Constellation Logic** – `shared/SatelliteDataProcessor.js` exports a `createSatelliteModule` factory. Both the browser and Node entry points inject their respective `satellite.js` dependency, so the same classes and helpers run in each environment.
-2. **Browser (`public/js/index.js`)** – `loadConstellation()` (from `satellite-client.js`) fetches `/data/starlink.tle`, seeds the visualization, and updates UI stats like total satellites, hop count, and estimated latency.
+2. **Browser (`public/js/index.js`)** – `loadConstellation()` (from `satellite-client.js`) fetches `/data/starlink.tle` for the visualization and updates UI stats like total satellites, hop count, and estimated latency.
 3. **Server (`server.js`)** – At startup the server loads the constellation once via `buildConstellation()`. Each `/api/route` request refreshes orbital positions, rebuilds the network graph (default 5,000 km max link range), finds the closest satellites to the requested lat/lon pairs, and runs Dijkstra to produce the hop-optimal route.
 
 Environment variables:

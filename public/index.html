@@ -432,6 +432,36 @@
         background: rgba(80,140,255,1);
         color: #fff;
       }
+
+      .primary-button {
+        width: 100%;
+        margin-top: 10px;
+        padding: 12px;
+        border: none;
+        border-radius: 10px;
+        background: linear-gradient(135deg, #4a9eff, #7d6bff);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s, transform 0.1s;
+      }
+
+      .primary-button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .primary-button:not(:disabled):active {
+        transform: scale(0.99);
+      }
+
+      .run-hint {
+        font-size: 11px;
+        color: #9abfff;
+        margin-top: 6px;
+        opacity: 0.75;
+      }
     </style>
     <script type="importmap">
       {
@@ -490,6 +520,9 @@
         <input type="text" id="end-location" class="location-input" placeholder="Search for a city...">
         <div id="end-dropdown" class="location-dropdown"></div>
       </div>
+
+      <button id="run-route" class="primary-button" disabled>Run Route</button>
+      <div class="run-hint">Select both locations, then click Run to compute the path.</div>
       
       <!-- Satellite Controls Section -->
       <div class="section-divider"></div>
