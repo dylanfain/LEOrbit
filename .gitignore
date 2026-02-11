@@ -1,1 +1,161 @@
-/node_modules
+# LEOrbit Project - Git Ignore File
+
+# ===========================
+# Node.js Dependencies
+# ===========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# ===========================
+# Package Manager Files
+# ===========================
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ===========================
+# Environment Variables
+# ===========================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ===========================
+# IDE and Editor Files
+# ===========================
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# ===========================
+# Operating System Files
+# ===========================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ===========================
+# Build and Distribution
+# ===========================
+dist/
+build/
+out/
+*.min.js
+*.min.css
+
+# ===========================
+# Testing and Coverage
+# ===========================
+coverage/
+.nyc_output/
+*.lcov
+.jest/
+test-results/
+junit.xml
+
+# ===========================
+# Logs and Temporary Files
+# ===========================
+logs/
+*.log
+*.pid
+*.seed
+*.pid.lock
+.grunt
+lib-cov
+.tmp/
+temp/
+
+# ===========================
+# Satellite Data (Large Files)
+# ===========================
+# Uncomment if you have large TLE files you don't want to commit
+# Satellite\ Data/*.txt
+# !Satellite\ Data/starlinkSATS.txt
+
+# Cache files for satellite positions
+*.cache
+*.db
+*.sqlite
+*.sqlite3
+
+# ===========================
+# Three.js and WebGL
+# ===========================
+# Compiled shaders (if you generate any)
+*.glsl.js
+
+# Texture cache or generated textures
+Textures/cache/
+Textures/generated/
+
+# ===========================
+# Documentation
+# ===========================
+# Keep README files, ignore generated docs
+docs/generated/
+*.pdf
+!docs/*.pdf
+
+# ===========================
+# Misc
+# ===========================
+.cache/
+*.bak
+*.backup
+*.old
+*.orig
+*.rej
+*.swp
+*.swo
+*.patch
+.history/
+.vscode/
