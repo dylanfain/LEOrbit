@@ -5,25 +5,31 @@
  * @returns {Object|null} { path: number[], hops: number, cost: number } or null if no path
  */
 export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
-  if (!networkState || !networkState.graph) {
+  if (!Number.isFinite(sourceId) || !Number.isFinite(destinationId)) {
+    throw new Error("sourceId and destinationId must be finite numbers");
+  }
+
+  if (!networkState || typeof networkState.graph !== "object") {
     throw new Error("Invalid networkState: missing graph");
   }
+
+  const graph = normalizeGraph(networkState.graph);
 
   // Edge case
   if (sourceId === destinationId) {
     return { path: [sourceId], hops: 0, cost: 0 };
   }
 
-  const graph = networkState.graph;
-
   // Collect all node ids that appear as keys or as targets
   const nodes = new Set();
   for (const key of Object.keys(graph)) {
     nodes.add(Number(key));
     for (const edge of graph[key] || []) {
-      nodes.add(Number(edge.target));
+      nodes.add(edge.target);
     }
   }
+  nodes.add(sourceId);
+  nodes.add(destinationId);
 
   // Dijkstra structures
   const dist = new Map();
@@ -57,9 +63,9 @@ export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
 
     visited.add(u);
 
-    const neighbors = graph[String(u)] || graph[u] || [];
+    const neighbors = graph[String(u)] || [];
     for (const edge of neighbors) {
-      const v = Number(edge.target);
+      const v = edge.target;
       if (visited.has(v)) continue;
 
       // Hop-count weighting: each edge costs 1
@@ -93,4 +99,28 @@ export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
     hops: path.length - 1,
     cost: dist.get(destinationId) // same as hops in this weighting
   };
+}
+
+function normalizeGraph(graph) {
+  const result = {};
+
+  for (const [nodeId, edges] of Object.entries(graph)) {
+    if (!Array.isArray(edges)) {
+      throw new Error(`Invalid adjacency list for node ${nodeId}`);
+    }
+
+    result[nodeId] = edges.map((edge) => {
+      if (edge == null || !Number.isFinite(Number(edge.target))) {
+        throw new Error(`Edge for node ${nodeId} is missing a numeric target`);
+      }
+
+      return {
+        target: Number(edge.target),
+        distance: Number(edge.distance) || null,
+        latency: Number(edge.latency) || null
+      };
+    });
+  }
+
+  return result;
 }

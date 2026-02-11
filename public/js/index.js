@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'jsm/controls/OrbitControls.js';
-import { SatelliteConstellation, EARTH_RADIUS_KM } from './Satellitedataprocessor.js';
+import { loadConstellation } from './satellite-client.js';
 import { LocationService } from './LocationService.js';
 import { createStarfield } from './starfield.js';
 
@@ -33,7 +33,7 @@ scene.add(starfield);
 // ============== Earth ==============
 const earthGeo = new THREE.SphereGeometry(1, 64, 32);
 const textureLoader = new THREE.TextureLoader();
-const earthTexture = textureLoader.load('Textures/2k_earth_daymap.jpg');
+const earthTexture = textureLoader.load('/textures/2k_earth_daymap.jpg');
 const earthMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     map: earthTexture
@@ -69,6 +69,20 @@ const endMarkerMat = new THREE.MeshBasicMaterial({
 const endMarker = new THREE.Mesh(markerGeo, endMarkerMat);
 endMarker.visible = false;
 scene.add(endMarker);
+
+const routeStats = {
+    hops: document.getElementById('route-hops'),
+    latency: document.getElementById('route-latency')
+};
+
+function setRouteStats(hopsText = '-', latencyText = '-') {
+    if (routeStats.hops) {
+        routeStats.hops.textContent = hopsText;
+    }
+    if (routeStats.latency) {
+        routeStats.latency.textContent = latencyText;
+    }
+}
 
 // ============== Utility Functions ==============
 function latLonToVector3(lat, lon, radius) {
@@ -119,7 +133,7 @@ let minAltitude = 0;
 let maxAltitude = 0;
 
 const satelliteMeshes = []; // Three.js meshes
-let constellation = null;   // SatelliteConstellation instance
+let constellation = null;   // Loaded by loadConstellation()
 
 function getAltitudeColor(altitude) {
     const t = Math.max(0, Math.min(1, (altitude - minAltitude) / (maxAltitude - minAltitude)));
@@ -152,12 +166,8 @@ function updateSatelliteColors() {
 
 // ============== Initialize Constellation ==============
 async function initConstellation() {
-    constellation = new SatelliteConstellation();
-    
     try {
-        await constellation.loadFromTLE('Satellite Data/starlinkSATS.txt');
-        const now = new Date();
-        constellation.updateAllPositions(now);
+        constellation = await loadConstellation('/data/starlink.tle');
         
         // Collect altitudes for percentile calculation
         const allAltitudes = [];
@@ -215,6 +225,10 @@ let endLocation = null;
 
 // Send route data to backend
 async function sendRouteToBackend() {
+    if (!startLocation || !endLocation) {
+        return;
+    }
+
     try {
         const response = await fetch('/api/route', {
             method: 'POST',
@@ -225,8 +239,24 @@ async function sendRouteToBackend() {
             })
         });
         const data = await response.json();
-        console.log('Route sent to backend:', data);
+
+        if (!response.ok) {
+            throw new Error(data.error || 'Route service error');
+        }
+
+        const hopsText = typeof data.hops === 'number' ? data.hops.toString() : '-';
+        const latencyText = typeof data.estimatedLatencyMs === 'number'
+            ? data.estimatedLatencyMs.toFixed(2)
+            : '-';
+
+        setRouteStats(hopsText, latencyText);
+        console.log('Route computed:', {
+            hops: data.hops,
+            latencyMs: data.estimatedLatencyMs,
+            path: data.path
+        });
     } catch (error) {
+        setRouteStats('-', '-');
         console.error('Failed to send route to backend:', error);
     }
 }
