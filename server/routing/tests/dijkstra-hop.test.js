@@ -5,7 +5,7 @@
  * Covers normal operations, edge cases, error handling, and graph topology variations.
  */
 
-import { dijkstraHopShortestPath } from '../Djikstrahop.js';
+import { dijkstraHopShortestPath } from '../dijkstra-hop.js';
 
 /**
  * Helper function to create a mock network state

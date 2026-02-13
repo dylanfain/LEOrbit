@@ -1,4 +1,4 @@
-import { SatelliteConstellation } from './Satellitedataprocessor.js';
+import { loadConstellation } from './satellite-client.js';
 
 /**
  * Example usage of the Satellite Data Processor
@@ -7,15 +7,7 @@ import { SatelliteConstellation } from './Satellitedataprocessor.js';
 
 async function initializeSatelliteNetwork() {
     // Create constellation manager
-    const constellation = new SatelliteConstellation();
-    
-    // Load TLE data from file
-    console.log('Loading satellite TLE data...');
-    await constellation.loadFromTLE('Satellite Data/starlinkSATS.txt');
-    
-    // Update positions to current time
-    const now = new Date();
-    constellation.updateAllPositions(now);
+    const constellation = await loadConstellation('/data/starlink.tle');
     
     // Build network topology with 5000km max range
     const networkStats = constellation.buildNetworkGraph(5000);
@@ -32,7 +24,7 @@ async function initializeSatelliteNetwork() {
         console.log(`  Position (ECI): x=${sat.position.x.toFixed(2)}, y=${sat.position.y.toFixed(2)}, z=${sat.position.z.toFixed(2)} km`);
         
         const geo = sat.getGeodeticDegrees();
-        console.log(`  Position (Geo): lat=${geo.latitude.toFixed(4)}°, lon=${geo.longitude.toFixed(4)}°, alt=${geo.altitude.toFixed(2)} km`);
+        console.log(`  Position (Geo): lat=${geo.latitude.toFixed(4)}deg, lon=${geo.longitude.toFixed(4)}deg, alt=${geo.altitude.toFixed(2)} km`);
         console.log(`  Visible neighbors: ${sat.visibleNeighbors.length}`);
         console.log(`  Available bandwidth: ${sat.availableBandwidth} Mbps`);
         
@@ -55,8 +47,7 @@ async function initializeSatelliteNetwork() {
 
 // Example: Simulate network over time
 async function simulateNetworkEvolution() {
-    const constellation = new SatelliteConstellation();
-    await constellation.loadFromTLE('Satellite Data/starlinkSATS.txt');
+    const constellation = await loadConstellation('/data/starlink.tle');
     
     // Simulate network at different time points
     const timeSteps = [0, 60, 120, 180]; // seconds from now
