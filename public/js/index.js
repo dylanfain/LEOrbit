@@ -3,6 +3,7 @@ import { OrbitControls } from 'jsm/controls/OrbitControls.js';
 import { loadConstellation } from './satellite-client.js';
 import { LocationService } from './LocationService.js';
 import { createStarfield } from './starfield.js';
+import { PathAnimator } from './PathAnimator.js';
 
 // ============== Scene Setup ==============
 const w = window.innerWidth;
@@ -41,6 +42,9 @@ const earthMat = new THREE.MeshStandardMaterial({
 const earth = new THREE.Mesh(earthGeo, earthMat);
 scene.add(earth);
 
+// ============== Path Animator ==============
+const pathAnimator = new PathAnimator(scene, earth);
+
 // ============== Lighting ==============
 const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
 scene.add(hemiLight);
@@ -54,17 +58,17 @@ const markerGeo = new THREE.CircleGeometry(0.025, 32);
 const BASE_MARKER_SCALE = 1.0;
 const REFERENCE_DISTANCE = 2.0; // Camera distance at which markers are "normal" size
 
-const startMarkerMat = new THREE.MeshBasicMaterial({ 
-    color: 0x00ff88, 
-    side: THREE.DoubleSide 
+const startMarkerMat = new THREE.MeshBasicMaterial({
+    color: 0x00ff88,
+    side: THREE.DoubleSide
 });
 const startMarker = new THREE.Mesh(markerGeo, startMarkerMat);
 startMarker.visible = false;
 scene.add(startMarker);
 
-const endMarkerMat = new THREE.MeshBasicMaterial({ 
-    color: 0xff4466, 
-    side: THREE.DoubleSide 
+const endMarkerMat = new THREE.MeshBasicMaterial({
+    color: 0xff4466,
+    side: THREE.DoubleSide
 });
 const endMarker = new THREE.Mesh(markerGeo, endMarkerMat);
 endMarker.visible = false;
@@ -88,29 +92,29 @@ function setRouteStats(hopsText = '-', latencyText = '-') {
 function latLonToVector3(lat, lon, radius) {
     const phi = (90 - lat) * (Math.PI / 180);
     const theta = (lon + 180) * (Math.PI / 180);
-    
+
     const x = -radius * Math.sin(phi) * Math.cos(theta);
     const y = radius * Math.cos(phi);
     const z = radius * Math.sin(phi) * Math.sin(theta);
-    
+
     return new THREE.Vector3(x, y, z);
 }
 
 function positionMarkerAtLocation(marker, lat, lon) {
     const surfacePos = latLonToVector3(lat, lon, 1.005);
     marker.position.copy(surfacePos);
-    
+
     // Orient marker to face outward from Earth center
     marker.lookAt(0, 0, 0);
     marker.rotateX(Math.PI); // Flip to face outward
-    
+
     marker.visible = true;
 }
 
 function lookAtLocation(lat, lon) {
     const targetPoint = latLonToVector3(lat, lon, 1.0);
     const cameraPos = latLonToVector3(lat, lon, 3.0);
-    
+
     camera.position.copy(cameraPos);
     camera.lookAt(0, 0, 0);  // Always look at Earth center
     controls.update();
@@ -119,7 +123,7 @@ function lookAtLocation(lat, lon) {
 function updateMarkerScales() {
     const cameraDistance = camera.position.length();
     const scale = (cameraDistance / REFERENCE_DISTANCE) * BASE_MARKER_SCALE;
-    
+
     startMarker.scale.setScalar(scale);
     endMarker.scale.setScalar(scale);
 }
@@ -168,7 +172,7 @@ function updateSatelliteColors() {
 async function initConstellation() {
     try {
         constellation = await loadConstellation('/data/starlink.tle');
-        
+
         // Collect altitudes for percentile calculation
         const allAltitudes = [];
         constellation.satellites.forEach(satNode => {
@@ -177,42 +181,42 @@ async function initConstellation() {
                 allAltitudes.push(geo.altitude);
             }
         });
-        
+
         // Calculate altitude range using percentiles
         allAltitudes.sort((a, b) => a - b);
         minAltitude = getPercentile(allAltitudes, 5);
         maxAltitude = getPercentile(allAltitudes, 95);
-        
+
         document.getElementById('alt-min').textContent = `${Math.round(minAltitude)} km`;
         document.getElementById('alt-max').textContent = `${Math.round(maxAltitude)} km`;
-        
+
         // Create meshes for each satellite
         constellation.satellites.forEach(satNode => {
             const pos = satNode.getThreeJsPosition();
             if (!pos) return;
-            
+
             const satMat = new THREE.MeshBasicMaterial({
                 color: currentSatelliteColor.clone()
             });
-            
+
             const mesh = new THREE.Mesh(satelliteGeo, satMat);
             mesh.position.set(pos.x, pos.y, pos.z);
             mesh.scale.setScalar(satelliteScale);
             mesh.userData.node = satNode; // Reference to SatelliteNode
-            
+
             earth.add(mesh);
             satelliteMeshes.push(mesh);
         });
-        
+
         console.log(`Positioned ${satelliteMeshes.length} satellites`);
-        
+
         // Update UI
         document.getElementById('sat-count').textContent = satelliteMeshes.length.toLocaleString();
         document.getElementById('loading').classList.add('hidden');
-        
+
     } catch (error) {
         console.error('Error initializing constellation:', error);
-        document.getElementById('loading').innerHTML = 
+        document.getElementById('loading').innerHTML =
             '<span style="color: #ff6666;">Error loading satellite data</span>';
     }
 }
@@ -240,7 +244,7 @@ runButton?.addEventListener('click', () => {
 
 updateRunButtonState();
 
-// Send route data to backend
+// Send route data to backend and animate the path
 async function sendRouteToBackend() {
     if (!startLocation || !endLocation) {
         return;
@@ -248,6 +252,8 @@ async function sendRouteToBackend() {
 
     routeLoading = true;
     updateRunButtonState();
+    pathAnimator.clear(); // Clear any existing animation
+
     console.log('[route] Submitting request to backend...', {
         start: startLocation.displayName,
         end: endLocation.displayName
@@ -257,9 +263,9 @@ async function sendRouteToBackend() {
         const response = await fetch('/api/route', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                start: startLocation, 
-                end: endLocation 
+            body: JSON.stringify({
+                start: startLocation,
+                end: endLocation
             })
         });
         const data = await response.json();
@@ -279,6 +285,12 @@ async function sendRouteToBackend() {
             latencyMs: data.estimatedLatencyMs,
             path: data.path
         });
+
+        // Animate the path
+        if (data.path && data.path.length > 0) {
+            visualizeRoutePath(data.path);
+        }
+
     } catch (error) {
         setRouteStats('-', '-');
         console.error('Failed to send route to backend:', error);
@@ -288,10 +300,154 @@ async function sendRouteToBackend() {
     }
 }
 
+function visualizeRoutePath(satelliteIds) {
+    console.log('[route:viz] ========== Starting Route Visualization ==========');
+    console.log('[route:viz] Received satellite IDs:', satelliteIds);
+
+    if (!constellation) {
+        console.error('Constellation not loaded');
+        return;
+    }
+
+    if (satelliteIds.length < 2) {
+        console.warn('Invalid path data - need at least 2 satellites', {
+            receivedCount: satelliteIds.length
+        });
+        return;
+    }
+
+    const pathSegments = [];
+    let segmentIndex = 0;
+
+    // start location → first satellite (for user's visual benefit)
+    console.log('Segment 1: Start Location → First Satellite');
+    const firstSatMesh = satelliteMeshes.find(m => m.userData.node.id === satelliteIds[0]);
+
+    if (firstSatMesh && startLocation) {
+        const startPos = latLonToVector3(startLocation.lat, startLocation.lon, 1.005);
+        const firstSatPos = firstSatMesh.getWorldPosition(new THREE.Vector3());
+
+        console.log('Start location:', {
+            name: startLocation.displayName,
+            lat: startLocation.lat,
+            lon: startLocation.lon,
+            position: startPos.toArray()
+        });
+
+        console.log('First satellite:', {
+            id: satelliteIds[0],
+            name: firstSatMesh.userData.node.name || 'Unknown',
+            position: firstSatPos.toArray()
+        });
+
+        pathSegments.push({
+            start: startPos,
+            end: firstSatPos,
+            color: new THREE.Color(0x00ff88) // green
+        });
+
+        console.log('First segment added (START → SAT)', {
+            distance: startPos.distanceTo(firstSatPos).toFixed(2) + ' units',
+            color: '0x00ff88 (green)'
+        });
+    } else {
+        console.error('Failed to create start segment', {
+            firstSatMeshFound: !!firstSatMesh,
+            startLocationSet: !!startLocation,
+            firstSatId: satelliteIds[0]
+        });
+    }
+
+    // satellite to satellite (main path)
+    for (let i = 0; i < satelliteIds.length - 1; i++) {
+        const fromId = satelliteIds[i];
+        const toId = satelliteIds[i + 1];
+
+        console.log(`[route] Hop ${i + 1}: Satellite ${fromId} → ${toId}`);
+
+        const fromMesh = satelliteMeshes.find(m => m.userData.node.id === fromId);
+        const toMesh = satelliteMeshes.find(m => m.userData.node.id === toId);
+
+        if (fromMesh && toMesh) {
+            const fromPos = fromMesh.getWorldPosition(new THREE.Vector3());
+            const toPos = toMesh.getWorldPosition(new THREE.Vector3());
+
+            console.log(`[route] Hop ${i + 1} details:`, {
+                fromSat: {
+                    id: fromId,
+                    name: fromMesh.userData.node.name || 'Unknown',
+                    position: fromPos.toArray()
+                },
+                toSat: {
+                    id: toId,
+                    name: toMesh.userData.node.name || 'Unknown',
+                    position: toPos.toArray()
+                },
+                distance: fromPos.distanceTo(toPos).toFixed(2) + ' units'
+            });
+
+            pathSegments.push({
+                start: fromPos,
+                end: toPos,
+                color: new THREE.Color(0xaa00ff) // Purple
+            });
+
+        } else {
+            console.error(`Error: Failed to create hop ${i + 1}`, {
+                fromId,
+                toId,
+                fromMeshFound: !!fromMesh,
+                toMeshFound: !!toMesh
+            });
+        }
+    }
+
+    // last satellite to end location (user intuitive)
+    console.log('Final Segment: Last Satellite → End Location');
+    const lastSatMesh = satelliteMeshes.find(m => m.userData.node.id === satelliteIds[satelliteIds.length - 1]);
+
+    if (lastSatMesh && endLocation) {
+        const lastSatPos = lastSatMesh.getWorldPosition(new THREE.Vector3());
+        const endPos = latLonToVector3(endLocation.lat, endLocation.lon, 1.005);
+
+        console.log('Last satellite:', {
+            id: satelliteIds[satelliteIds.length - 1],
+            name: lastSatMesh.userData.node.name || 'Unknown',
+            position: lastSatPos.toArray()
+        });
+
+        console.log('End location:', {
+            name: endLocation.displayName,
+            lat: endLocation.lat,
+            lon: endLocation.lon,
+            position: endPos.toArray()
+        });
+
+        pathSegments.push({
+            start: lastSatPos,
+            end: endPos,
+            color: new THREE.Color(0xff4466) // Red for end
+        });
+
+        console.log('Final segment added (SAT → END)', {
+            distance: lastSatPos.distanceTo(endPos).toFixed(2) + ' units',
+            color: '0xff4466 (red)'
+        });
+    } else {
+        console.error('Error: Failed to create end segment', {
+            lastSatMeshFound: !!lastSatMesh,
+            endLocationSet: !!endLocation,
+            lastSatId: satelliteIds[satelliteIds.length - 1]
+        });
+    }
+
+    pathAnimator.animatePath(pathSegments, 250); // 250ms delay between hops
+}
+
 function setupLocationInput(inputId, dropdownId, isStart) {
     const input = document.getElementById(inputId);
     const dropdown = document.getElementById(dropdownId);
-    
+
     input.addEventListener('input', async (e) => {
         const query = e.target.value;
         if (isStart) {
@@ -300,38 +456,38 @@ function setupLocationInput(inputId, dropdownId, isStart) {
             endLocation = null;
         }
         updateRunButtonState();
-        
+
         if (query.length < 3) {
             dropdown.classList.remove('visible');
             return;
         }
-        
+
         dropdown.innerHTML = '<div class="dropdown-item loading">Searching...</div>';
         dropdown.classList.add('visible');
-        
+
         try {
             const results = await locationService.search(query);
-            
+
             if (results.length === 0) {
                 dropdown.innerHTML = '<div class="dropdown-item no-results">No results found</div>';
                 return;
             }
-            
+
             dropdown.innerHTML = results.map((r, i) => `
                 <div class="dropdown-item" data-index="${i}">
                     ${r.displayName}
                 </div>
             `).join('');
-            
+
             // Attach click handlers
             dropdown.querySelectorAll('.dropdown-item').forEach(item => {
                 item.addEventListener('click', () => {
                     const index = parseInt(item.dataset.index);
                     const selected = results[index];
-                    
+
                     input.value = selected.displayName.split(',')[0]; // Short name
                     dropdown.classList.remove('visible');
-                    
+
                     if (isStart) {
                         startLocation = selected;
                         positionMarkerAtLocation(startMarker, selected.lat, selected.lon);
@@ -341,24 +497,24 @@ function setupLocationInput(inputId, dropdownId, isStart) {
                         positionMarkerAtLocation(endMarker, selected.lat, selected.lon);
                         lookAtLocation(selected.lat, selected.lon);
                     }
-                    
+
                     updateRunButtonState();
                 });
             });
-            
+
         } catch (error) {
             console.error('Search error:', error);
             dropdown.innerHTML = '<div class="dropdown-item error">Search failed</div>';
         }
     });
-    
+
     // Hide dropdown when clicking outside
     document.addEventListener('click', (e) => {
         if (!input.contains(e.target) && !dropdown.contains(e.target)) {
             dropdown.classList.remove('visible');
         }
     });
-    
+
     // Hide dropdown on escape
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
@@ -380,7 +536,7 @@ satColorPicker.addEventListener('input', (e) => {
     const hexColor = e.target.value;
     colorHexDisplay.textContent = hexColor;
     currentSatelliteColor.set(hexColor);
-    
+
     if (!altitudeModeEnabled) {
         updateSatelliteColors();
     }
@@ -418,10 +574,13 @@ window.addEventListener('resize', () => {
 function animate() {
     requestAnimationFrame(animate);
     controls.update();
-    
+
     // Update marker scales based on camera distance
     updateMarkerScales();
-    
+
+    // Update path animation
+    pathAnimator.update();
+
     renderer.render(scene, camera);
 }
 
