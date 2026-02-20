@@ -3,12 +3,9 @@ name: Update Starlink TLE Data
 on:
   schedule:
     # Runs every Sunday at 2:00 AM UTC
-    - cron: '0 2 * * 0'
+    - cron: '0 2 * * *'
   workflow_dispatch:  # Allows manual trigger from GitHub Actions tab
-  push:  # ADD THIS - triggers on every push to test
-    branches:
-      - TLE-Automated-Update  # Replace with your actual branch name
-      - main
+  
 
 jobs:
   update-tle:
@@ -88,7 +85,7 @@ jobs:
       - name: Create success summary
         if: steps.check_changes.outputs.has_changes == 'true'
         run: |
-          echo "## ✅ TLE Update Successful" >> $GITHUB_STEP_SUMMARY
+          echo "## TLE Update Successful" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Date**: $(date -u +"%Y-%m-%d %H:%M UTC")" >> $GITHUB_STEP_SUMMARY
           echo "- **Satellites**: $SATELLITE_COUNT" >> $GITHUB_STEP_SUMMARY
@@ -98,7 +95,7 @@ jobs:
       - name: Create no-change summary
         if: steps.check_changes.outputs.has_changes == 'false'
         run: |
-          echo "## ℹ️ No TLE Updates Needed" >> $GITHUB_STEP_SUMMARY
+          echo "## No TLE Updates Needed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "TLE data is already up to date." >> $GITHUB_STEP_SUMMARY
       
@@ -107,7 +104,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const title = '⚠️ TLE Update Failed';
+            const title = 'TLE Update Failed';
             const body = `The automated TLE data update failed.
             
             **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
