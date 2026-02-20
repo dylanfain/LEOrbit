@@ -17,6 +17,10 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/shared', express.static(path.join(__dirname, 'shared')));
 
+app.get('/analytics', (_req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'analytics.html'));
+});
+
 let constellation = null;
 let currentRoute = {
     startLocation: null,
@@ -55,8 +59,6 @@ app.post('/api/route', (req, res) => {
     logRouteRequest(start, end);
 
     const now = new Date();
-    constellation.updateAllPositions(now);
-    constellation.buildNetworkGraph(MAX_LINK_RANGE_KM);
 
     const startMatch = constellation.findClosestSatelliteToLocation(
         start.lat,
@@ -221,12 +223,14 @@ function logRouteRequest(start, end) {
 async function start() {
     try {
         constellation = await buildConstellation(TLE_PATH);
+        constellation.buildNetworkGraph(MAX_LINK_RANGE_KM);
         console.log(
             `[init] Loaded ${constellation.satellites.length} satellites from ${path.relative(
                 __dirname,
                 TLE_PATH
             )}`
         );
+        console.log(`[init] Built static network graph with max range ${MAX_LINK_RANGE_KM} km`);
 
         app.listen(PORT, () => {
             console.log(`[server] Satellite Visualizer API running at http://localhost:${PORT}`);
