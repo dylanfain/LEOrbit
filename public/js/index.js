@@ -50,25 +50,25 @@ directionalLight.position.set(5, 3, 5);
 scene.add(directionalLight);
 
 // ============== Location Markers ==============
-const markerGeo = new THREE.CircleGeometry(0.025, 32);
-const BASE_MARKER_SCALE = 1.0;
+const BASE_MARKER_SCALE = 0.06;
 const REFERENCE_DISTANCE = 2.0; // Camera distance at which markers are "normal" size
 
-const startMarkerMat = new THREE.MeshBasicMaterial({ 
-    color: 0x00ff88, 
-    side: THREE.DoubleSide 
-});
-const startMarker = new THREE.Mesh(markerGeo, startMarkerMat);
-startMarker.visible = false;
-scene.add(startMarker);
+function createLocationMarker(texturePath) {
+    const texture = textureLoader.load(texturePath);
+    const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false
+    });
+    const marker = new THREE.Sprite(material);
+    marker.center.set(0.5, 0); // Bottom-center pin tip sits exactly at marker position
+    marker.visible = false;
+    scene.add(marker);
+    return marker;
+}
 
-const endMarkerMat = new THREE.MeshBasicMaterial({ 
-    color: 0xff4466, 
-    side: THREE.DoubleSide 
-});
-const endMarker = new THREE.Mesh(markerGeo, endMarkerMat);
-endMarker.visible = false;
-scene.add(endMarker);
+const startMarker = createLocationMarker('/textures/location_start.png');
+const endMarker = createLocationMarker('/textures/location_end.png');
 
 const routeStats = {
     hops: document.getElementById('route-hops'),
@@ -99,11 +99,6 @@ function latLonToVector3(lat, lon, radius) {
 function positionMarkerAtLocation(marker, lat, lon) {
     const surfacePos = latLonToVector3(lat, lon, 1.005);
     marker.position.copy(surfacePos);
-    
-    // Orient marker to face outward from Earth center
-    marker.lookAt(0, 0, 0);
-    marker.rotateX(Math.PI); // Flip to face outward
-    
     marker.visible = true;
 }
 
