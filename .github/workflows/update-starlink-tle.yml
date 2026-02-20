@@ -1,0 +1,126 @@
+name: Update Starlink TLE Data
+
+on:
+  schedule:
+    # Runs every Sunday at 2:00 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:  # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  update-tle:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write  # Required to commit changes
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Download latest Starlink TLE data
+        run: |
+          echo "Downloading TLE data from CelesTrak..."
+          curl -f -o public/data/starlink.tle \
+            "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle"
+          
+          # Verify download was successful
+          if [ ! -s public/data/starlink.tle ]; then
+            echo "Error: Downloaded file is empty"
+            exit 1
+          fi
+          
+          echo "Download complete. File size:"
+          ls -lh public/data/starlink.tle
+      
+      - name: Validate TLE format
+        run: |
+          echo "Validating TLE format..."
+          
+          # Count lines (should be divisible by 3: name + line1 + line2)
+          line_count=$(wc -l < public/data/starlink.tle)
+          
+          if [ $((line_count % 3)) -ne 0 ]; then
+            echo "Error: Invalid TLE format - line count ($line_count) not divisible by 3"
+            exit 1
+          fi
+          
+          # Check for basic TLE structure (lines should start with 1 and 2)
+          if ! grep -q "^1 " public/data/starlink.tle || ! grep -q "^2 " public/data/starlink.tle; then
+            echo "Error: TLE data doesn't contain valid line markers"
+            exit 1
+          fi
+          
+          satellite_count=$((line_count / 3))
+          echo "✓ Validation passed: $satellite_count satellites found"
+          echo "SATELLITE_COUNT=$satellite_count" >> $GITHUB_ENV
+      
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet public/data/starlink.tle; then
+            echo "No changes detected in TLE data"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected in TLE data"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          current_date=$(date -u +"%Y-%m-%d %H:%M UTC")
+          
+          git add public/data/starlink.tle
+          git commit -m "chore: update Starlink TLE data - $current_date" \
+                     -m "Updated constellation data with $SATELLITE_COUNT satellites"
+          
+          git push
+      
+      - name: Create success summary
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          echo "## ✅ TLE Update Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date**: $(date -u +"%Y-%m-%d %H:%M UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "- **Satellites**: $SATELLITE_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source**: CelesTrak Starlink Group" >> $GITHUB_STEP_SUMMARY
+          echo "- **File**: \`public/data/starlink.tle\`" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Create no-change summary
+        if: steps.check_changes.outputs.has_changes == 'false'
+        run: |
+          echo "## ℹ️ No TLE Updates Needed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "TLE data is already up to date." >> $GITHUB_STEP_SUMMARY
+      
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '⚠️ TLE Update Failed';
+            const body = `The automated TLE data update failed.
+            
+            **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            **Date**: ${new Date().toUTCString()}
+            **Branch**: ${{ github.ref }}
+            
+            Please check the workflow logs and verify:
+            1. CelesTrak is accessible
+            2. The TLE file format is correct
+            3. Repository permissions are configured properly
+            
+            cc: @${{ github.repository_owner }}`;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['automation', 'bug']
+            });
