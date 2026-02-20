@@ -7,7 +7,7 @@ on:
   workflow_dispatch:  # Allows manual trigger from GitHub Actions tab
   push:  # ADD THIS - triggers on every push to test
     branches:
-      - your-branch-name  # Replace with your actual branch name
+      - TLE-Automated-Update  # Replace with your actual branch name
       - main
 
 jobs:
