@@ -22,12 +22,16 @@ app.get('/analytics', (_req, res) => {
 });
 
 let constellation = null;
+
+let satelliteById = new Map();
+
 let currentRoute = {
     startLocation: null,
     endLocation: null,
     startSatellite: null,
     endSatellite: null,
     path: [],
+    satellitePositions: [],
     hops: 0,
     estimatedLatencyMs: 0,
     timestamp: null
@@ -99,12 +103,28 @@ app.post('/api/route', (req, res) => {
 
     const estimatedLatencyMs = computePathLatency(routeResult.path, constellation.networkGraph);
 
+    const satellitePositions = Array.isArray(routeResult.path)
+        ? routeResult.path.map((satIdRaw) => {
+            const satId = Number(satIdRaw);
+            const sat = satelliteById.get(satId);
+            const geo = sat?.getGeodeticDegrees();
+            return {
+                id: satId,
+                name: sat?.name ?? null,
+                lat: geo?.latitude ?? null,
+                lon: geo?.longitude ?? null,
+                altitude: geo?.altitude ?? null
+            };
+        })
+        : [];
+
     currentRoute = {
         startLocation: start,
         endLocation: end,
         startSatellite: formatSatelliteMatch(startMatch),
         endSatellite: formatSatelliteMatch(endMatch),
         path: routeResult.path,
+        satellitePositions,
         hops: routeResult.hops,
         estimatedLatencyMs,
         timestamp: now.toISOString()
@@ -122,6 +142,33 @@ app.get('/api/route', (_req, res) => {
     }
 
     res.json(currentRoute);
+});
+
+// ============== Algorithm Dashboard API GET ==============
+app.get('/api/analytics/:algorithm', (req, res) => {
+    if (!constellation) {
+        return res.status(503).json({ error: 'Constellation not ready' });
+    }
+
+    const { algorithm } = req.params;
+
+    if (!currentRoute.path || currentRoute.path.length === 0) {
+        return res.status(404).json({
+            error: 'No route data available',
+            message: 'Please calculate a route first in the 3D Visualization tab'
+        });
+    }
+
+    const analyticsData = {
+        algorithm,
+        hops: currentRoute.hops,
+        latency: currentRoute.estimatedLatencyMs,
+        bandwidth: calculateBandwidthUsage(currentRoute.path, constellation.networkGraph),
+        pathLength: currentRoute.path.length,
+        timestamp: currentRoute.timestamp
+    };
+
+    res.json(analyticsData);
 });
 
 function isValidLocation(location) {
@@ -152,6 +199,34 @@ function computePathLatency(pathNodes, graph) {
     }
 
     return Number(total.toFixed(3));
+}
+
+// ============== Pseudo Bandwidth Info (Until we get it) ==============
+function calculateBandwidthUsage(pathNodes, graph) {
+    if (!Array.isArray(pathNodes) || pathNodes.length < 2) {
+        return 0;
+    }
+
+    let totalBandwidth = 0;
+    let linkCount = 0;
+
+    for (let i = 0; i < pathNodes.length - 1; i++) {
+        const fromId = Number(pathNodes[i]);
+        const toId = Number(pathNodes[i + 1]);
+        const edges = graph instanceof Map
+            ? graph.get(fromId) || []
+            : graph[String(fromId)] || graph[fromId] || [];
+        const edge = edges.find((neighbor) => Number(neighbor.target) === toId);
+
+        if (edge) {
+            const latency = Number(edge.latency ?? 0);
+            const bandwidth = edge.bandwidth ?? (100 - latency / 10);
+            totalBandwidth += Number(bandwidth);
+            linkCount++;
+        }
+    }
+
+    return linkCount > 0 ? Number((totalBandwidth / linkCount).toFixed(2)) : 0;
 }
 
 function formatSatelliteMatch(match) {
@@ -186,10 +261,10 @@ function logRouteDetails(routePayload) {
     const satLine = (prefix, sat) =>
         sat
             ? [
-                  line(`${prefix} ID`, sat.id),
-                  line(`${prefix} Name`, sat.name),
-                  line(`${prefix} Distance`, sat.distanceKm ? `${sat.distanceKm} km` : '-')
-              ].join('\n')
+                line(`${prefix} ID`, sat.id),
+                line(`${prefix} Name`, sat.name),
+                line(`${prefix} Distance`, sat.distanceKm ? `${sat.distanceKm} km` : '-')
+            ].join('\n')
             : line(`${prefix} Satellite`, 'not resolved');
 
     console.log('\n[route:details]');
@@ -224,6 +299,9 @@ async function start() {
     try {
         constellation = await buildConstellation(TLE_PATH);
         constellation.buildNetworkGraph(MAX_LINK_RANGE_KM);
+
+        satelliteById = new Map(constellation.satellites.map((sat) => [Number(sat.id), sat]));
+
         console.log(
             `[init] Loaded ${constellation.satellites.length} satellites from ${path.relative(
                 __dirname,
