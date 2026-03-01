@@ -4,28 +4,70 @@
     <meta charset="UTF-8" />
     <title>Satellite Analytics Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+
     <style>
-        html {
-            background: black;
-        }
-        body {
+        html, body {
+            height: 100%;
             margin: 0;
+            background: black;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             color: white;
-            opacity: 0;
-            transition: opacity 0.4s ease;
-            background: transparent;
             overflow: hidden;
         }
-        body.page-visible { opacity: 1; }
-
+        .app-container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
         #star-background {
             position: fixed;
-            top: 0; left: 0;
-            width: 100vw; height: 100vh;
-            z-index: -1;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 0;
         }
-
+        /* control panel */
+        #ui-panel {
+            width: 320px;
+            background: rgba(10, 10, 20, 0.85);
+            border-right: 1px solid rgba(100, 150, 255, 0.3);
+            padding: 30px 25px;
+            backdrop-filter: blur(10px);
+            box-shadow: 8px 0 32px rgba(0, 0, 0, 0.4);
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        /* panel header */
+        #ui-panel h2 {
+            margin: 0 0 10px 0;
+            font-size: 20px;
+            font-weight: 600;
+            color: #7eb8ff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .route-info-badge {
+            font-size: 12px;
+            background: rgba(126, 184, 255, 0.1);
+            border: 1px solid rgba(126, 184, 255, 0.3);
+            padding: 8px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            color: #cfe4ff;
+        }
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        /* navigation tabs */
         #top-tabs {
             position: fixed;
             top: 20px;
@@ -38,60 +80,25 @@
         .tab {
             padding: 8px 18px;
             border-radius: 20px;
-            background: rgba(30,60,120,0.6);
+            background: rgba(30, 60, 120, 0.6);
             color: #cfe4ff;
             text-decoration: none;
             font-size: 14px;
             font-weight: 500;
             transition: all 0.2s ease;
         }
-        .tab:hover {
-            background: rgba(80,140,255,0.8);
-            color: #fff;
-        }
         .tab.active {
-            background: rgba(80,140,255,1);
+            background: rgba(80, 140, 255, 1);
             color: #fff;
-        }
-
-        #ui-panel {
-            position: fixed;
-            top: 70px;
-            left: 20px;
-            background: rgba(10,10,20,0.85);
-            border: 1px solid rgba(100,150,255,0.3);
-            border-radius: 12px;
-            padding: 20px;
-            min-width: 240px;
-            color: #fff;
-            backdrop-filter: blur(10px);
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-            z-index: 20;
-        }
-        #ui-panel h2 {
-            margin: 0 0 15px 0;
-            font-size: 18px;
-            font-weight: 600;
-            color: #7eb8ff;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
-        }
-        #ui-panel h2 span {
-            font-size: 14px;
-        }
-        .panel-content {
-            display: block;
         }
         .control-group {
-            margin-top: 15px;
+            margin-top: 20px;
         }
         .control-group label {
             display: block;
             font-size: 12px;
             color: #aaa;
-            margin-bottom: 6px;
+            margin-bottom: 8px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
@@ -100,7 +107,7 @@
             padding: 8px 16px;
             margin: 4px 2px;
             border-radius: 12px;
-            background: rgba(30,60,120,0.6);
+            background: rgba(30, 60, 120, 0.6);
             color: #cfe4ff;
             cursor: pointer;
             font-size: 13px;
@@ -109,75 +116,125 @@
             transition: all 0.2s;
         }
         .toggle-button.active {
-            background: rgba(80,140,255,1);
+            background: rgba(80, 140, 255, 1);
             color: #fff;
         }
         .radio-group {
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 8px;
         }
-
+        .radio-group label {
+            text-transform: none;
+            color: #fff;
+            font-size: 14px;
+            cursor: pointer;
+        }
         #written-analytics {
             display: none;
-            margin-top: 8px;
-            font-size: 12px;
-            color: #cfe4ff;
-            max-height: 200px;
+            margin-top: auto;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            padding-top: 20px;
+            max-height: 40%;
             overflow-y: auto;
-            border-top: 1px solid rgba(255,255,255,0.1);
-            padding-top: 6px;
-        }
-        .algos-container {
-            display: flex;
-            gap: 12px;
-        }
-        .algos-container.vertical {
-            flex-direction: column;
-        }
-        .algos-container.horizontal {
-            flex-direction: row;
-            justify-content: space-between;
         }
         .algo-block {
-            flex: 1;
-            border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 8px;
-            padding: 4px 6px;
-            text-align: center;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 10px;
         }
         .algo-name {
-            text-decoration: underline;
+            color: #7eb8ff;
             font-weight: 600;
-            margin-bottom: 4px;
+            font-size: 14px;
+            margin-bottom: 6px;
+            text-decoration: underline;
         }
-
+        .metric-item {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            margin: 2px 0;
+            color: #cfe4ff;
+        }
         .dashboard {
-            margin: 0;
-            padding: 0;
-            width: 100vw;
-            height: 100vh;
-            position: relative;
-            z-index: 5;
-            text-align: center;
-        }
-        .chart-placeholder {
-            position: fixed;
-            top: 55%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 80vw;
-            height: 70vh;
-            background: rgba(30, 60, 120, 0.7);
-            border-radius: 16px;
+            flex: 1;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #888;
-            font-size: 18px;
-            z-index: 5;
+            padding: 80px 20px 20px 20px;
+        }
+        .chart-container {
+            width: 90%;
+            height: 75%;
+            background: rgba(30, 60, 120, 0.3);
+            border-radius: 16px;
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+        .chart-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .chart-header h3 {
+            margin: 0;
+            font-size: 24px;
+            color: #7eb8ff;
+            font-weight: 600;
+        }
+        .chart-wrapper {
+            flex: 1;
+            position: relative;
+            min-height: 0;
+        }
+        #metricsChart {
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            width: 100% !important;
+            height: 100% !important;
+        }
+        .chart-type-selector {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .chart-type-btn {
+            padding: 6px 14px;
+            border-radius: 8px;
+            background: rgba(30, 60, 120, 0.6);
+            color: #cfe4ff;
+            cursor: pointer;
+            font-size: 12px;
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            transition: all 0.2s;
+        }
+        .chart-type-btn.active {
+            background: rgba(80, 140, 255, 1);
+            color: #fff;
+        }
+        .checkbox-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-control label {
+            margin: 0;
+            cursor: pointer;
+        }
+
+        .checkbox-control input[type="checkbox"] {
+            cursor: pointer;
         }
     </style>
+    <!-- import map for Three.js -->
     <script type="importmap">
         {
           "imports": {
@@ -187,148 +244,81 @@
     </script>
 </head>
 <body>
-
 <div id="star-background"></div>
-
-<div id="top-tabs">
-    <a href="index.html" class="tab">3D Visualization</a>
-    <a href="analytics.html" class="tab active">Analytics</a>
-</div>
-
-<div id="ui-panel">
-    <h2>📡 Routing Analytics <span id="toggle-panel">−</span></h2>
-    <div class="panel-content">
+<div class="app-container">
+    <!-- Left sidebar control panel -->
+    <div id="ui-panel">
+        <h2>📡 Routing Analytics</h2>
+        <!-- Active route information display -->
+        <div id="active-route-display" class="route-info-badge">
+            No active route selected.
+        </div>
+        <!-- Algorithm selection toggles -->
         <div class="control-group">
             <label>Select Algorithms</label>
             <div>
-                <span class="toggle-button active">Shortest Path</span>
-                <span class="toggle-button">Minimum Latency</span>
-                <span class="toggle-button">Load Balanced</span>
+                <span class="toggle-button active" data-algo="shortest-path">Shortest Path</span>
+                <span class="toggle-button" data-algo="minimum-latency">Minimum Latency</span>
+                <span class="toggle-button" data-algo="load-balanced">Load Balanced</span>
             </div>
         </div>
-
+        <!-- Metric selection radio buttons -->
         <div class="control-group">
             <label>Select Metric to Chart</label>
             <div class="radio-group">
-                <label><input type="radio" name="metric" value="Hops" checked> Average Hops</label>
+                <label><input type="radio" name="metric" value="Hops" checked> Hop Count</label>
                 <label><input type="radio" name="metric" value="Latency"> Avg Latency (ms)</label>
-                <label><input type="radio" name="metric" value="Bandwidth"> Bandwidth Usage (%)</label>
+                <label><input type="radio" name="metric" value="Bandwidth"> Bandwfidth Usage (%)</label>
             </div>
         </div>
-
-        <div class="control-group">
-            <label>Show Written Analytics</label>
+        <!-- Toggle for written analytics display -->
+        <div class="control-group checkbox-control">
             <input type="checkbox" id="show-summary">
-            <div id="summary-note" style="font-size:10px; color:#888; margin-top:2px;">*Multiple metrics only available when a single algorithm is selected</div>
+            <label for="show-summary">Show Written Analytics</label>
         </div>
-
+        <!-- Additional metrics selection (shown when single algorithm selected) -->
         <div class="control-group">
-            <label>Select Additional Metrics for Written Analytics</label>
+            <label>Select Additional Metrics</label>
             <div class="radio-group">
                 <label><input type="checkbox" name="extra-metrics" value="Hops"> Hops</label>
                 <label><input type="checkbox" name="extra-metrics" value="Latency"> Latency</label>
                 <label><input type="checkbox" name="extra-metrics" value="Bandwidth"> Bandwidth</label>
             </div>
         </div>
-
+        <!-- Written analytics container (populated dynamically) -->
         <div id="written-analytics"></div>
     </div>
-</div>
 
-<div class="dashboard">
-    <div class="chart-placeholder" id="chart-placeholder">
-        Chart will appear here
+    <!-- Right side main content area -->
+    <div class="main-content">
+        <div id="top-tabs">
+            <a href="index.html" class="tab">3D Visualization</a>
+            <a href="analytics.html" class="tab active">Analytics</a>
+        </div>
+        <!-- Chart dashboard area -->
+        <div class="dashboard">
+            <div class="chart-container">
+                <div class="chart-type-selector">
+                    <button class="chart-type-btn active" data-type="bar">Bar Chart</button>
+                    <button class="chart-type-btn" data-type="line">Line Chart</button>
+                </div>
+                <div class="chart-header">
+                    <h3 id="chart-title">Select a route to view analytics</h3>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="metricsChart"></canvas>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
 <script type="module">
-    import { initStarBackground } from './starfield.js';
-    const container = document.getElementById('star-background');
-    initStarBackground(container);
+    import { initStarBackground } from './js/starfield.js';
+    initStarBackground(document.getElementById('star-background'));
 </script>
 
-<script>
-    window.addEventListener('DOMContentLoaded', () => {
-        document.body.classList.add('page-visible');
-    });
+<script type="module" src="js/analytics.js"></script>
 
-    const panelHeader = document.querySelector('#ui-panel h2');
-    const panelContent = document.querySelector('.panel-content');
-    const toggleSymbol = document.querySelector('#toggle-panel');
-    panelHeader.addEventListener('click', () => {
-        if(panelContent.style.display === 'none') {
-            panelContent.style.display = 'block';
-            toggleSymbol.textContent = '−';
-        } else {
-            panelContent.style.display = 'none';
-            toggleSymbol.textContent = '+';
-        }
-    });
-
-    const algoButtons = document.querySelectorAll('.toggle-button');
-    const chart = document.getElementById('chart-placeholder');
-    const summaryCheckbox = document.getElementById('show-summary');
-    const writtenDiv = document.getElementById('written-analytics');
-    const extraMetricCheckboxes = document.querySelectorAll('input[name="extra-metrics"]');
-    const metricRadios = document.querySelectorAll('input[name="metric"]');
-
-    function updateChart() {
-        const selectedAlgos = Array.from(algoButtons).filter(b => b.classList.contains('active')).map(b => b.textContent);
-        const selectedMetric = document.querySelector('input[name="metric"]:checked').nextSibling.textContent;
-        chart.textContent = `${selectedMetric} charted for: ${selectedAlgos.join(', ')}`;
-    }
-
-    function updateWrittenAnalytics() {
-        const selectedAlgos = Array.from(algoButtons).filter(b => b.classList.contains('active')).map(b => b.textContent);
-        if (!summaryCheckbox.checked) {
-            writtenDiv.style.display = 'none';
-            return;
-        }
-
-        let metricsToShow = [document.querySelector('input[name="metric"]:checked').value];
-        if (selectedAlgos.length === 1) {
-            metricsToShow = Array.from(extraMetricCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
-            if (!metricsToShow.includes(document.querySelector('input[name="metric"]:checked').value))
-                metricsToShow.unshift(document.querySelector('input[name="metric"]:checked').value);
-        }
-
-        writtenDiv.innerHTML = '';
-        const container = document.createElement('div');
-        container.className = 'algos-container ' + (selectedAlgos.length > 1 ? 'horizontal' : 'vertical');
-
-        selectedAlgos.forEach(algo => {
-            const block = document.createElement('div');
-            block.className = 'algo-block';
-            const name = document.createElement('div');
-            name.className = 'algo-name';
-            name.textContent = algo;
-            block.appendChild(name);
-            metricsToShow.forEach(m => {
-                const val = Math.floor(Math.random() * 100); // placeholder, right now all the data is random
-                const metricDiv = document.createElement('div');
-                metricDiv.textContent = `${m}: ${val}`;
-                block.appendChild(metricDiv);
-            });
-            container.appendChild(block);
-        });
-
-        writtenDiv.appendChild(container);
-        writtenDiv.style.display = 'block';
-    }
-
-    algoButtons.forEach(btn => btn.addEventListener('click', () => {
-        btn.classList.toggle('active');
-        updateChart();
-        updateWrittenAnalytics();
-    }));
-    metricRadios.forEach(radio => radio.addEventListener('change', () => {
-        updateChart();
-        updateWrittenAnalytics();
-    }));
-    extraMetricCheckboxes.forEach(cb => cb.addEventListener('change', updateWrittenAnalytics));
-    summaryCheckbox.addEventListener('change', updateWrittenAnalytics);
-
-    updateChart();
-</script>
 </body>
 </html>

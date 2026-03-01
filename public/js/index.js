@@ -3,6 +3,7 @@ import { OrbitControls } from 'jsm/controls/OrbitControls.js';
 import { loadConstellation } from './satellite-client.js';
 import { LocationService } from './LocationService.js';
 import { createStarfield } from './starfield.js';
+import { PathAnimator } from './PathAnimator.js';
 
 // ============== Scene Setup ==============
 const w = window.innerWidth;
@@ -40,6 +41,9 @@ const earthMat = new THREE.MeshStandardMaterial({
 });
 const earth = new THREE.Mesh(earthGeo, earthMat);
 scene.add(earth);
+
+// ============== Path Animator ==============
+const pathAnimator = new PathAnimator(scene, earth);
 
 // ============== Lighting ==============
 const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
@@ -88,11 +92,11 @@ function setRouteStats(hopsText = '-', latencyText = '-') {
 function latLonToVector3(lat, lon, radius) {
     const phi = (90 - lat) * (Math.PI / 180);
     const theta = (lon + 180) * (Math.PI / 180);
-    
+
     const x = -radius * Math.sin(phi) * Math.cos(theta);
     const y = radius * Math.cos(phi);
     const z = radius * Math.sin(phi) * Math.sin(theta);
-    
+
     return new THREE.Vector3(x, y, z);
 }
 
@@ -105,7 +109,7 @@ function positionMarkerAtLocation(marker, lat, lon) {
 function lookAtLocation(lat, lon) {
     const targetPoint = latLonToVector3(lat, lon, 1.0);
     const cameraPos = latLonToVector3(lat, lon, 3.0);
-    
+
     camera.position.copy(cameraPos);
     camera.lookAt(0, 0, 0);  // Always look at Earth center
     controls.update();
@@ -114,7 +118,7 @@ function lookAtLocation(lat, lon) {
 function updateMarkerScales() {
     const cameraDistance = camera.position.length();
     const scale = (cameraDistance / REFERENCE_DISTANCE) * BASE_MARKER_SCALE;
-    
+
     startMarker.scale.setScalar(scale);
     endMarker.scale.setScalar(scale);
 }
@@ -129,6 +133,11 @@ let maxAltitude = 0;
 
 const satelliteMeshes = []; // Three.js meshes
 let constellation = null;   // Loaded by loadConstellation()
+
+// ============== Route Highlighting ==============
+const ROUTE_HIGHLIGHT_COLOR = new THREE.Color(0x00e5ff);
+const ROUTE_HIGHLIGHT_SCALE_MULTIPLIER = 1.8;
+let highlightedSatIds = new Set(); // ids of local meshes highlighted (for UI updates)
 
 function getAltitudeColor(altitude) {
     const t = Math.max(0, Math.min(1, (altitude - minAltitude) / (maxAltitude - minAltitude)));
@@ -148,22 +157,132 @@ function getPercentile(sortedArr, percentile) {
     return sortedArr[Math.min(index, sortedArr.length - 1)];
 }
 
+function applyBaseSatelliteStyle(mesh) {
+    const node = mesh.userData.node;
+    const altitude = node.getGeodeticDegrees()?.altitude || 0;
+
+    if (altitudeModeEnabled) mesh.material.color.copy(getAltitudeColor(altitude));
+    else mesh.material.color.copy(currentSatelliteColor);
+
+    mesh.scale.setScalar(satelliteScale);
+}
+
+function isSatHighlighted(mesh) {
+    const id = Number(mesh?.userData?.node?.id);
+    return Number.isFinite(id) && highlightedSatIds.has(id);
+}
+
+function clearHighlightedSatellites() {
+    highlightedSatIds.clear();
+    satelliteMeshes.forEach(applyBaseSatelliteStyle);
+}
+
 function updateSatelliteColors() {
-    satelliteMeshes.forEach(mesh => {
-        const altitude = mesh.userData.node.getGeodeticDegrees()?.altitude || 0;
-        if (altitudeModeEnabled) {
-            mesh.material.color.copy(getAltitudeColor(altitude));
+    // Respect highlighting (don't overwrite route sats when toggling modes/colors)
+    satelliteMeshes.forEach((mesh) => {
+        if (isSatHighlighted(mesh)) {
+            mesh.material.color.copy(ROUTE_HIGHLIGHT_COLOR);
+            return;
+        }
+        applyBaseSatelliteStyle(mesh);
+    });
+}
+
+// Convert backend satellite position -> scene vector (Earth radius ~ 1.0 units)
+function satPosToVector3(pos) {
+    const R_EARTH_KM = 6371;
+    return latLonToVector3(
+        Number(pos.lat),
+        Number(pos.lon),
+        1 + (Number(pos.altitude || 0) / R_EARTH_KM)
+    );
+}
+
+// Find nearest satellite mesh to a world position
+function findNearestSatelliteMesh(worldPos, maxDistance = 0.03) {
+    let bestMesh = null;
+    let bestDist = Infinity;
+
+    for (const mesh of satelliteMeshes) {
+        const d = mesh.position.distanceTo(worldPos);
+        if (d < bestDist) {
+            bestDist = d;
+            bestMesh = mesh;
+        }
+    }
+
+    if (!bestMesh || bestDist > maxDistance) return null;
+    return bestMesh;
+}
+
+// Highlight satellites by trusting backend positions
+function highlightSatellitesFromPositions(satellitePositions = []) {
+    highlightedSatIds.clear();
+
+    if (!Array.isArray(satellitePositions) || satellitePositions.length === 0) {
+
+        satelliteMeshes.forEach(applyBaseSatelliteStyle);
+        return;
+    }
+
+    let matched = 0;
+
+    for (const pos of satellitePositions) {
+        if (!pos) continue;
+        if (!Number.isFinite(Number(pos.lat)) || !Number.isFinite(Number(pos.lon))) continue;
+
+        const v = satPosToVector3(pos);
+
+        // want to highlight th best we can, so slight mismatch tolerance
+        const mesh = findNearestSatelliteMesh(v, 0.08);
+        if (!mesh) continue;
+
+        // backend has authority, trust their mesh
+        mesh.position.copy(v);
+
+        highlightedSatIds.add(Number(mesh.userData.node.id));
+        matched++;
+    }
+
+    satelliteMeshes.forEach((mesh) => {
+        if (highlightedSatIds.has(Number(mesh.userData.node.id))) {
+            mesh.material.color.copy(ROUTE_HIGHLIGHT_COLOR);
+            mesh.scale.setScalar(satelliteScale * ROUTE_HIGHLIGHT_SCALE_MULTIPLIER);
         } else {
-            mesh.material.color.copy(currentSatelliteColor);
+            applyBaseSatelliteStyle(mesh);
         }
     });
+
+    console.log('[route:highlight] highlighted:', matched, '/', satellitePositions.length);
+}
+
+// ============== Route Visualization ==============
+function visualizeRoutePath(satelliteIds, satellitePositions) {
+    if (!Array.isArray(satelliteIds) || satelliteIds.length < 2) return;
+    if (!Array.isArray(satellitePositions) || satellitePositions.length < 2) return;
+
+    const R_EARTH_KM = 6371;
+    const pathSegments = [];
+
+    // Satellite → satellite hops only
+    for (let i = 0; i < satelliteIds.length - 1; i++) {
+        const from = satellitePositions[i];
+        const to = satellitePositions[i + 1];
+        if (!from || !to) continue;
+
+        const fromPos = latLonToVector3(from.lat, from.lon, 1 + (Number(from.altitude ?? 0) / R_EARTH_KM));
+        const toPos = latLonToVector3(to.lat, to.lon, 1 + (Number(to.altitude ?? 0) / R_EARTH_KM));
+        pathSegments.push({ start: fromPos, end: toPos, color: new THREE.Color(0xaa00ff) });
+    }
+
+    pathAnimator.animatePath(pathSegments, 250);
 }
 
 // ============== Initialize Constellation ==============
 async function initConstellation() {
     try {
         constellation = await loadConstellation('/data/starlink.tle');
-        
+
         // Collect altitudes for percentile calculation
         const allAltitudes = [];
         constellation.satellites.forEach(satNode => {
@@ -172,42 +291,42 @@ async function initConstellation() {
                 allAltitudes.push(geo.altitude);
             }
         });
-        
+
         // Calculate altitude range using percentiles
         allAltitudes.sort((a, b) => a - b);
         minAltitude = getPercentile(allAltitudes, 5);
         maxAltitude = getPercentile(allAltitudes, 95);
-        
+
         document.getElementById('alt-min').textContent = `${Math.round(minAltitude)} km`;
         document.getElementById('alt-max').textContent = `${Math.round(maxAltitude)} km`;
-        
+
         // Create meshes for each satellite
         constellation.satellites.forEach(satNode => {
             const pos = satNode.getThreeJsPosition();
             if (!pos) return;
-            
+
             const satMat = new THREE.MeshBasicMaterial({
                 color: currentSatelliteColor.clone()
             });
-            
+
             const mesh = new THREE.Mesh(satelliteGeo, satMat);
             mesh.position.set(pos.x, pos.y, pos.z);
             mesh.scale.setScalar(satelliteScale);
             mesh.userData.node = satNode; // Reference to SatelliteNode
-            
+
             earth.add(mesh);
             satelliteMeshes.push(mesh);
         });
-        
+
         console.log(`Positioned ${satelliteMeshes.length} satellites`);
-        
+
         // Update UI
         document.getElementById('sat-count').textContent = satelliteMeshes.length.toLocaleString();
         document.getElementById('loading').classList.add('hidden');
-        
+
     } catch (error) {
         console.error('Error initializing constellation:', error);
-        document.getElementById('loading').innerHTML = 
+        document.getElementById('loading').innerHTML =
             '<span style="color: #ff6666;">Error loading satellite data</span>';
     }
 }
@@ -243,6 +362,11 @@ async function sendRouteToBackend() {
 
     routeLoading = true;
     updateRunButtonState();
+
+    // Clear existing visuals
+    pathAnimator.clear();
+    clearHighlightedSatellites();
+
     console.log('[route] Submitting request to backend...', {
         start: startLocation.displayName,
         end: endLocation.displayName
@@ -252,9 +376,9 @@ async function sendRouteToBackend() {
         const response = await fetch('/api/route', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                start: startLocation, 
-                end: endLocation 
+            body: JSON.stringify({
+                start: startLocation,
+                end: endLocation
             })
         });
         const data = await response.json();
@@ -274,6 +398,12 @@ async function sendRouteToBackend() {
             latencyMs: data.estimatedLatencyMs,
             path: data.path
         });
+
+        // highlight + animate route using backend-provided satellitePositions
+        if (Array.isArray(data.path) && data.path.length > 0) {
+            highlightSatellitesFromPositions(data.satellitePositions);
+            visualizeRoutePath(data.path, data.satellitePositions);
+        }
     } catch (error) {
         setRouteStats('-', '-');
         console.error('Failed to send route to backend:', error);
@@ -286,7 +416,7 @@ async function sendRouteToBackend() {
 function setupLocationInput(inputId, dropdownId, isStart) {
     const input = document.getElementById(inputId);
     const dropdown = document.getElementById(dropdownId);
-    
+
     input.addEventListener('input', async (e) => {
         const query = e.target.value;
         if (isStart) {
@@ -295,38 +425,38 @@ function setupLocationInput(inputId, dropdownId, isStart) {
             endLocation = null;
         }
         updateRunButtonState();
-        
+
         if (query.length < 3) {
             dropdown.classList.remove('visible');
             return;
         }
-        
+
         dropdown.innerHTML = '<div class="dropdown-item loading">Searching...</div>';
         dropdown.classList.add('visible');
-        
+
         try {
             const results = await locationService.search(query);
-            
+
             if (results.length === 0) {
                 dropdown.innerHTML = '<div class="dropdown-item no-results">No results found</div>';
                 return;
             }
-            
+
             dropdown.innerHTML = results.map((r, i) => `
                 <div class="dropdown-item" data-index="${i}">
                     ${r.displayName}
                 </div>
             `).join('');
-            
+
             // Attach click handlers
             dropdown.querySelectorAll('.dropdown-item').forEach(item => {
                 item.addEventListener('click', () => {
                     const index = parseInt(item.dataset.index);
                     const selected = results[index];
-                    
+
                     input.value = selected.displayName.split(',')[0]; // Short name
                     dropdown.classList.remove('visible');
-                    
+
                     if (isStart) {
                         startLocation = selected;
                         positionMarkerAtLocation(startMarker, selected.lat, selected.lon);
@@ -336,24 +466,24 @@ function setupLocationInput(inputId, dropdownId, isStart) {
                         positionMarkerAtLocation(endMarker, selected.lat, selected.lon);
                         lookAtLocation(selected.lat, selected.lon);
                     }
-                    
+
                     updateRunButtonState();
                 });
             });
-            
+
         } catch (error) {
             console.error('Search error:', error);
             dropdown.innerHTML = '<div class="dropdown-item error">Search failed</div>';
         }
     });
-    
+
     // Hide dropdown when clicking outside
     document.addEventListener('click', (e) => {
         if (!input.contains(e.target) && !dropdown.contains(e.target)) {
             dropdown.classList.remove('visible');
         }
     });
-    
+
     // Hide dropdown on escape
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
@@ -375,7 +505,7 @@ satColorPicker.addEventListener('input', (e) => {
     const hexColor = e.target.value;
     colorHexDisplay.textContent = hexColor;
     currentSatelliteColor.set(hexColor);
-    
+
     if (!altitudeModeEnabled) {
         updateSatelliteColors();
     }
@@ -395,8 +525,14 @@ starsToggle.addEventListener('change', (e) => {
 sizeSlider.addEventListener('input', (e) => {
     satelliteScale = parseFloat(e.target.value);
     sizeValue.textContent = satelliteScale.toFixed(1) + 'x';
-    satelliteMeshes.forEach(mesh => {
-        mesh.scale.setScalar(satelliteScale);
+
+    // Preserve highlight multiplier when resizing
+    satelliteMeshes.forEach((mesh) => {
+        mesh.scale.setScalar(
+            isSatHighlighted(mesh)
+                ? satelliteScale * ROUTE_HIGHLIGHT_SCALE_MULTIPLIER
+                : satelliteScale
+        );
     });
 });
 
@@ -413,10 +549,13 @@ window.addEventListener('resize', () => {
 function animate() {
     requestAnimationFrame(animate);
     controls.update();
-    
+
     // Update marker scales based on camera distance
     updateMarkerScales();
-    
+
+    // Update route animation pulses
+    pathAnimator.update();
+
     renderer.render(scene, camera);
 }
 
