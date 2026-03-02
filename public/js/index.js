@@ -56,6 +56,8 @@ scene.add(directionalLight);
 // ============== Location Markers ==============
 const BASE_MARKER_SCALE = 0.06;
 const REFERENCE_DISTANCE = 2.0; // Camera distance at which markers are "normal" size
+const MARKER_SCALE_EPSILON = 0.0001;
+const LOCATION_SEARCH_DEBOUNCE_MS = 180;
 
 function createLocationMarker(texturePath) {
     const texture = textureLoader.load(texturePath);
@@ -73,6 +75,7 @@ function createLocationMarker(texturePath) {
 
 const startMarker = createLocationMarker('/textures/location_start.png');
 const endMarker = createLocationMarker('/textures/location_end.png');
+let lastMarkerScale = null;
 
 const routeStats = {
     hops: document.getElementById('route-hops'),
@@ -107,7 +110,6 @@ function positionMarkerAtLocation(marker, lat, lon) {
 }
 
 function lookAtLocation(lat, lon) {
-    const targetPoint = latLonToVector3(lat, lon, 1.0);
     const cameraPos = latLonToVector3(lat, lon, 3.0);
 
     camera.position.copy(cameraPos);
@@ -119,19 +121,25 @@ function updateMarkerScales() {
     const cameraDistance = camera.position.length();
     const scale = (cameraDistance / REFERENCE_DISTANCE) * BASE_MARKER_SCALE;
 
+    if (lastMarkerScale !== null && Math.abs(scale - lastMarkerScale) < MARKER_SCALE_EPSILON) {
+        return;
+    }
+
     startMarker.scale.setScalar(scale);
     endMarker.scale.setScalar(scale);
+    lastMarkerScale = scale;
 }
 
 // ============== Satellite Configuration ==============
 const satelliteGeo = new THREE.SphereGeometry(0.005, 8, 8);
-let satelliteScale = 0.75;
+let satelliteScale = 0.5;
 let currentSatelliteColor = new THREE.Color(0xffffff);
 let altitudeModeEnabled = false;
 let minAltitude = 0;
 let maxAltitude = 0;
 
 const satelliteMeshes = []; // Three.js meshes
+const satelliteMeshById = new Map();
 let constellation = null;   // Loaded by loadConstellation()
 
 // ============== Route Highlighting ==============
@@ -257,8 +265,8 @@ function findNearestSatelliteMesh(worldPos, maxDistance = 0.03) {
     return bestMesh;
 }
 
-// Highlight satellites by trusting backend positions
-function highlightSatellitesFromPositions(satellitePositions = []) {
+// Highlight satellites by trusting backend ids first, then positions as fallback
+function highlightSatellitesFromRoute(satelliteIds = [], satellitePositions = []) {
     highlightedSatIds.clear();
 
     if (!Array.isArray(satellitePositions) || satellitePositions.length === 0) {
@@ -269,14 +277,19 @@ function highlightSatellitesFromPositions(satellitePositions = []) {
 
     let matched = 0;
 
-    for (const pos of satellitePositions) {
+    for (let i = 0; i < satellitePositions.length; i++) {
+        const pos = satellitePositions[i];
         if (!pos) continue;
         if (!Number.isFinite(Number(pos.lat)) || !Number.isFinite(Number(pos.lon))) continue;
 
         const v = satPosToVector3(pos);
+        const id = Number(satelliteIds[i]);
+        let mesh = Number.isFinite(id) ? satelliteMeshById.get(id) : null;
 
-        // want to highlight th best we can, so slight mismatch tolerance
-        const mesh = findNearestSatelliteMesh(v, 0.08);
+        // fallback if backend id is missing or local mesh id lookup failed
+        if (!mesh) {
+            mesh = findNearestSatelliteMesh(v, 0.08);
+        }
         if (!mesh) continue;
 
         // backend has authority, trust their mesh
@@ -393,6 +406,7 @@ async function initConstellation() {
 
             earth.add(mesh);
             satelliteMeshes.push(mesh);
+            satelliteMeshById.set(Number(satNode.id), mesh);
         });
 
         console.log(`Positioned ${satelliteMeshes.length} satellites`);
@@ -478,7 +492,7 @@ async function sendRouteToBackend() {
 
         // highlight + animate route using backend-provided satellitePositions
         if (Array.isArray(data.path) && data.path.length > 0) {
-            highlightSatellitesFromPositions(data.satellitePositions);
+            highlightSatellitesFromRoute(data.path, data.satellitePositions);
             visualizeRoutePath(data.path, data.satellitePositions);
         }
     } catch (error) {
@@ -493,6 +507,8 @@ async function sendRouteToBackend() {
 function setupLocationInput(inputId, dropdownId, isStart) {
     const input = document.getElementById(inputId);
     const dropdown = document.getElementById(dropdownId);
+    let activeSearchToken = 0;
+    let debounceTimer = null;
 
     input.addEventListener('input', async (e) => {
         const query = e.target.value;
@@ -504,6 +520,11 @@ function setupLocationInput(inputId, dropdownId, isStart) {
         updateRunButtonState();
 
         if (query.length < 3) {
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+                debounceTimer = null;
+            }
+            activeSearchToken += 1;
             dropdown.classList.remove('visible');
             return;
         }
@@ -511,47 +532,62 @@ function setupLocationInput(inputId, dropdownId, isStart) {
         dropdown.innerHTML = '<div class="dropdown-item loading">Searching...</div>';
         dropdown.classList.add('visible');
 
-        try {
-            const results = await locationService.search(query);
-
-            if (results.length === 0) {
-                dropdown.innerHTML = '<div class="dropdown-item no-results">No results found</div>';
-                return;
-            }
-
-            dropdown.innerHTML = results.map((r, i) => `
-                <div class="dropdown-item" data-index="${i}">
-                    ${r.displayName}
-                </div>
-            `).join('');
-
-            // Attach click handlers
-            dropdown.querySelectorAll('.dropdown-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    const index = parseInt(item.dataset.index);
-                    const selected = results[index];
-
-                    input.value = selected.displayName.split(',')[0]; // Short name
-                    dropdown.classList.remove('visible');
-
-                    if (isStart) {
-                        startLocation = selected;
-                        positionMarkerAtLocation(startMarker, selected.lat, selected.lon);
-                        lookAtLocation(selected.lat, selected.lon);
-                    } else {
-                        endLocation = selected;
-                        positionMarkerAtLocation(endMarker, selected.lat, selected.lon);
-                        lookAtLocation(selected.lat, selected.lon);
-                    }
-
-                    updateRunButtonState();
-                });
-            });
-
-        } catch (error) {
-            console.error('Search error:', error);
-            dropdown.innerHTML = '<div class="dropdown-item error">Search failed</div>';
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
         }
+
+        const searchToken = ++activeSearchToken;
+
+        debounceTimer = setTimeout(async () => {
+            try {
+                const results = await locationService.search(query);
+
+                if (searchToken !== activeSearchToken || input.value !== query) {
+                    return;
+                }
+
+                if (results.length === 0) {
+                    dropdown.innerHTML = '<div class="dropdown-item no-results">No results found</div>';
+                    return;
+                }
+
+                dropdown.innerHTML = results.map((r, i) => `
+                    <div class="dropdown-item" data-index="${i}">
+                        ${r.displayName}
+                    </div>
+                `).join('');
+
+                dropdown.querySelectorAll('.dropdown-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const index = parseInt(item.dataset.index, 10);
+                        const selected = results[index];
+
+                        input.value = selected.displayName.split(',')[0]; // Short name
+                        dropdown.classList.remove('visible');
+                        activeSearchToken += 1;
+
+                        if (isStart) {
+                            startLocation = selected;
+                            positionMarkerAtLocation(startMarker, selected.lat, selected.lon);
+                            lookAtLocation(selected.lat, selected.lon);
+                        } else {
+                            endLocation = selected;
+                            positionMarkerAtLocation(endMarker, selected.lat, selected.lon);
+                            lookAtLocation(selected.lat, selected.lon);
+                        }
+
+                        updateRunButtonState();
+                    });
+                });
+            } catch (error) {
+                if (searchToken !== activeSearchToken) {
+                    return;
+                }
+
+                console.error('Search error:', error);
+                dropdown.innerHTML = '<div class="dropdown-item error">Search failed</div>';
+            }
+        }, LOCATION_SEARCH_DEBOUNCE_MS);
     });
 
     // Hide dropdown when clicking outside

@@ -238,6 +238,10 @@ export class SatelliteConnector {
     }
 
     update() {
+        if (this.meshes.length === 0) {
+            return;
+        }
+
         const pulse = 0.6 + Math.sin(Date.now() * 0.005) * 0.2;
         this.meshes.forEach(mesh => {
             if (mesh.material.opacity !== undefined) {

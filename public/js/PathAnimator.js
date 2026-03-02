@@ -87,6 +87,10 @@ export class PathAnimator {
     }
 
     update() {
+        if (this.pulses.length === 0 && this.connector.meshes.length === 0) {
+            return;
+        }
+
         this.connector.update();
         const now = Date.now();
 
