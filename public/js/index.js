@@ -135,8 +135,13 @@ const satelliteMeshes = []; // Three.js meshes
 let constellation = null;   // Loaded by loadConstellation()
 
 // ============== Route Highlighting ==============
-const ROUTE_HIGHLIGHT_COLOR = new THREE.Color(0x00e5ff);
-const ROUTE_HIGHLIGHT_SCALE_MULTIPLIER = 1.8;
+const ROUTE_HIGHLIGHT_COLOR = new THREE.Color(0xaa00ff);
+const ROUTE_HIGHLIGHT_SCALE_MULTIPLIER = 2.0;
+const ROUTE_LOOP_DELAY_MS = 750;
+const ROUTE_SEGMENT_TRAVEL_MS = 800;
+const ROUTE_GROUND_LINK_COLOR = ROUTE_HIGHLIGHT_COLOR.clone();
+const ROUTE_PULSE_COLOR = new THREE.Color(0xff4fd8);
+const routeHighlightHaloGeo = new THREE.SphereGeometry(0.01, 12, 12);
 let highlightedSatIds = new Set(); // ids of local meshes highlighted (for UI updates)
 
 function getAltitudeColor(altitude) {
@@ -165,6 +170,43 @@ function applyBaseSatelliteStyle(mesh) {
     else mesh.material.color.copy(currentSatelliteColor);
 
     mesh.scale.setScalar(satelliteScale);
+    toggleRouteHighlightHalo(mesh, false);
+}
+
+function ensureRouteHighlightHalo(mesh) {
+    if (!mesh.userData.routeHighlightHalo) {
+        const haloMaterial = new THREE.MeshBasicMaterial({
+            color: ROUTE_HIGHLIGHT_COLOR.clone(),
+            transparent: true,
+            opacity: 0.28,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+        const halo = new THREE.Mesh(routeHighlightHaloGeo, haloMaterial);
+        halo.scale.setScalar(1.9);
+        halo.visible = false;
+        mesh.add(halo);
+        mesh.userData.routeHighlightHalo = halo;
+    }
+
+    return mesh.userData.routeHighlightHalo;
+}
+
+function toggleRouteHighlightHalo(mesh, isVisible) {
+    if (isVisible) {
+        ensureRouteHighlightHalo(mesh).visible = true;
+        return;
+    }
+
+    if (mesh.userData.routeHighlightHalo) {
+        mesh.userData.routeHighlightHalo.visible = false;
+    }
+}
+
+function applyHighlightedSatelliteStyle(mesh) {
+    mesh.material.color.copy(ROUTE_HIGHLIGHT_COLOR);
+    mesh.scale.setScalar(satelliteScale * ROUTE_HIGHLIGHT_SCALE_MULTIPLIER);
+    toggleRouteHighlightHalo(mesh, true);
 }
 
 function isSatHighlighted(mesh) {
@@ -181,7 +223,7 @@ function updateSatelliteColors() {
     // Respect highlighting (don't overwrite route sats when toggling modes/colors)
     satelliteMeshes.forEach((mesh) => {
         if (isSatHighlighted(mesh)) {
-            mesh.material.color.copy(ROUTE_HIGHLIGHT_COLOR);
+            applyHighlightedSatelliteStyle(mesh);
             return;
         }
         applyBaseSatelliteStyle(mesh);
@@ -246,8 +288,7 @@ function highlightSatellitesFromPositions(satellitePositions = []) {
 
     satelliteMeshes.forEach((mesh) => {
         if (highlightedSatIds.has(Number(mesh.userData.node.id))) {
-            mesh.material.color.copy(ROUTE_HIGHLIGHT_COLOR);
-            mesh.scale.setScalar(satelliteScale * ROUTE_HIGHLIGHT_SCALE_MULTIPLIER);
+            applyHighlightedSatelliteStyle(mesh);
         } else {
             applyBaseSatelliteStyle(mesh);
         }
@@ -258,13 +299,26 @@ function highlightSatellitesFromPositions(satellitePositions = []) {
 
 // ============== Route Visualization ==============
 function visualizeRoutePath(satelliteIds, satellitePositions) {
-    if (!Array.isArray(satelliteIds) || satelliteIds.length < 2) return;
-    if (!Array.isArray(satellitePositions) || satellitePositions.length < 2) return;
+    if (!Array.isArray(satelliteIds) || satelliteIds.length < 1) return;
+    if (!Array.isArray(satellitePositions) || satellitePositions.length < 1) return;
 
     const R_EARTH_KM = 6371;
     const pathSegments = [];
+    const firstSat = satellitePositions[0];
+    const lastSat = satellitePositions[satellitePositions.length - 1];
 
-    // Satellite → satellite hops only
+    if (startLocation && firstSat) {
+        pathSegments.push({
+            start: latLonToVector3(startLocation.lat, startLocation.lon, 1.005),
+            end: latLonToVector3(firstSat.lat, firstSat.lon, 1 + (Number(firstSat.altitude ?? 0) / R_EARTH_KM)),
+            color: ROUTE_GROUND_LINK_COLOR,
+            style: 'line',
+            animate: false,
+            opacity: 0.5,
+            radius: 0.0035
+        });
+    }
+
     for (let i = 0; i < satelliteIds.length - 1; i++) {
         const from = satellitePositions[i];
         const to = satellitePositions[i + 1];
@@ -272,10 +326,33 @@ function visualizeRoutePath(satelliteIds, satellitePositions) {
 
         const fromPos = latLonToVector3(from.lat, from.lon, 1 + (Number(from.altitude ?? 0) / R_EARTH_KM));
         const toPos = latLonToVector3(to.lat, to.lon, 1 + (Number(to.altitude ?? 0) / R_EARTH_KM));
-        pathSegments.push({ start: fromPos, end: toPos, color: new THREE.Color(0xaa00ff) });
+        pathSegments.push({
+            start: fromPos,
+            end: toPos,
+            color: ROUTE_HIGHLIGHT_COLOR,
+            pulseColor: ROUTE_PULSE_COLOR,
+            style: 'arc',
+            animate: true,
+            pulseDuration: ROUTE_SEGMENT_TRAVEL_MS
+        });
     }
 
-    pathAnimator.animatePath(pathSegments, 250);
+    if (endLocation && lastSat) {
+        pathSegments.push({
+            start: latLonToVector3(lastSat.lat, lastSat.lon, 1 + (Number(lastSat.altitude ?? 0) / R_EARTH_KM)),
+            end: latLonToVector3(endLocation.lat, endLocation.lon, 1.005),
+            color: ROUTE_GROUND_LINK_COLOR,
+            style: 'line',
+            animate: false,
+            opacity: 0.5,
+            radius: 0.0035
+        });
+    }
+
+    pathAnimator.animatePath(pathSegments, {
+        defaultPulseDuration: ROUTE_SEGMENT_TRAVEL_MS,
+        loopDelayMs: ROUTE_LOOP_DELAY_MS
+    });
 }
 
 // ============== Initialize Constellation ==============
@@ -528,11 +605,12 @@ sizeSlider.addEventListener('input', (e) => {
 
     // Preserve highlight multiplier when resizing
     satelliteMeshes.forEach((mesh) => {
-        mesh.scale.setScalar(
-            isSatHighlighted(mesh)
-                ? satelliteScale * ROUTE_HIGHLIGHT_SCALE_MULTIPLIER
-                : satelliteScale
-        );
+        if (isSatHighlighted(mesh)) {
+            applyHighlightedSatelliteStyle(mesh);
+            return;
+        }
+
+        mesh.scale.setScalar(satelliteScale);
     });
 });
 

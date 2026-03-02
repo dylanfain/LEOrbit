@@ -7,70 +7,88 @@ export class PathAnimator {
         this.earth = earth;
         this.connector = new SatelliteConnector(scene, earth);
         this.pulses = [];
+        this.segmentEntries = [];
         this.isAnimating = false;
+        this.animationRunToken = 0;
+        this.loopDelayMs = 750;
+        this.defaultPulseDuration = 800;
 
         console.log('[PathAnimator] Initialized');
     }
 
-    async animatePath(pathSegments, delayBetweenHops = 300) {
+    animatePath(pathSegments, options = {}) {
         console.log('[PathAnimator:animatePath] Starting animation', {
             segmentCount: pathSegments.length,
-            delayBetweenHops: delayBetweenHops + 'ms'
+            loopDelayMs: (options.loopDelayMs ?? this.loopDelayMs) + 'ms'
         });
 
         this.clear();
         this.isAnimating = true;
+        this.loopDelayMs = options.loopDelayMs ?? this.loopDelayMs;
+        this.defaultPulseDuration = options.defaultPulseDuration ?? this.defaultPulseDuration;
+        this.segmentEntries = pathSegments.map((segment, index) => {
+            const mesh = segment.style === 'dashed-line' || segment.style === 'line'
+                ? this.connector.createStraightLine(segment.start, segment.end, {
+                    color: segment.color || new THREE.Color(0x00f2ff),
+                    opacity: segment.opacity,
+                    dashed: segment.style === 'dashed-line',
+                    dashSize: segment.dashSize,
+                    gapSize: segment.gapSize,
+                    radius: segment.radius,
+                    tubularSegments: segment.tubularSegments,
+                    radialSegments: segment.radialSegments
+                })
+                : this.connector.createArc(
+                    segment.start,
+                    segment.end,
+                    segment.color || new THREE.Color(0x00f2ff)
+                );
 
-        for (let i = 0; i < pathSegments.length; i++) {
-            if (!this.isAnimating) {
-                console.log('[PathAnimator:animatePath] Animation interrupted');
-                break;
-            }
-
-            const segment = pathSegments[i];
-
-            console.log(`[PathAnimator:animatePath] Drawing segment ${i + 1}/${pathSegments.length}`, {
-                startPos: segment.start.toArray(),
-                endPos: segment.end.toArray(),
-                color: segment.color ? segment.color.getHexString() : 'default',
-                distance: segment.start.distanceTo(segment.end).toFixed(2) + ' units'
+            console.log(`[PathAnimator:animatePath] Segment ${index + 1}/${pathSegments.length} created`, {
+                style: segment.style || 'arc',
+                animate: segment.animate !== false
             });
 
-            // create arc for segment
-            const arc = this.connector.createArc(
-                segment.start,
-                segment.end,
-                segment.color || new THREE.Color(0x00f2ff)
-            );
-
-            console.log(`[PathAnimator:animatePath] Arc created for segment ${i + 1}`);
-
-            // traveling pulse animation
-            const pulse = this.connector.createTravelingPulse(arc, 800);
-            if (pulse) {
-                this.pulses.push(pulse);
-                console.log(`[PathAnimator:animatePath] Pulse added for segment ${i + 1}`, {
-                    activePulses: this.pulses.length
-                });
-            }
-
-            // delay before next hop
-            if (i < pathSegments.length - 1) {
-                console.log(`[PathAnimator:animatePath] Waiting ${delayBetweenHops}ms before next hop`);
-                await this.delay(delayBetweenHops);
-            }
-        }
-
-        console.log('[PathAnimator:animatePath] Animation sequence complete', {
-            totalSegments: pathSegments.length,
-            activePulses: this.pulses.length
+            return { ...segment, mesh };
         });
+
+        const runToken = ++this.animationRunToken;
+        this.runAnimationLoop(runToken);
+    }
+
+    async runAnimationLoop(runToken) {
+        const animatedSegments = this.segmentEntries.filter(segment => segment.animate !== false);
+
+        while (this.isAnimating && runToken === this.animationRunToken) {
+            for (const segment of animatedSegments) {
+                if (!this.isAnimating || runToken !== this.animationRunToken) {
+                    return;
+                }
+
+                const pulse = this.connector.createTravelingPulse(
+                    segment.mesh,
+                    segment.pulseDuration ?? this.defaultPulseDuration,
+                    segment.pulseColor
+                );
+
+                if (pulse) {
+                    this.pulses.push(pulse);
+                }
+
+                await this.delay(segment.pulseDuration ?? this.defaultPulseDuration);
+            }
+
+            if (animatedSegments.length === 0) {
+                return;
+            }
+
+            await this.delay(this.loopDelayMs);
+        }
     }
 
     update() {
         this.connector.update();
         const now = Date.now();
-        const initialPulseCount = this.pulses.length;
 
         this.pulses = this.pulses.filter(pulse => {
             if (!pulse.active) return false;
@@ -80,7 +98,9 @@ export class PathAnimator {
 
             if (t >= 1) {
                 pulse.mesh.visible = false;
-                this.scene.remove(pulse.mesh);
+                if (pulse.mesh.parent) {
+                    pulse.mesh.parent.remove(pulse.mesh);
+                }
                 pulse.mesh.geometry.dispose();
                 pulse.mesh.material.dispose();
                 return false;
@@ -105,12 +125,14 @@ export class PathAnimator {
         });
 
         this.isAnimating = false;
+        this.animationRunToken += 1;
+        this.segmentEntries = [];
         this.connector.clear();
 
         // clean up
         this.pulses.forEach(pulse => {
             if (pulse.mesh.parent) {
-                this.scene.remove(pulse.mesh);
+                pulse.mesh.parent.remove(pulse.mesh);
             }
             pulse.mesh.geometry.dispose();
             pulse.mesh.material.dispose();

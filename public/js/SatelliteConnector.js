@@ -17,6 +17,77 @@ export class SatelliteConnector {
         });
     }
 
+    toParentSpace(startVec, endVec) {
+        const start = startVec.clone();
+        const end = endVec.clone();
+
+        if (this.parent !== this.scene) {
+            const worldToLocal = new THREE.Matrix4();
+            worldToLocal.copy(this.parent.matrixWorld).invert();
+            start.applyMatrix4(worldToLocal);
+            end.applyMatrix4(worldToLocal);
+        }
+
+        return { start, end };
+    }
+
+    createStraightLine(startVec, endVec, options = {}) {
+        const { start, end } = this.toParentSpace(startVec, endVec);
+        const useDashes = options.dashed === true;
+        const radius = options.radius;
+
+        if (!useDashes && Number.isFinite(radius) && radius > 0) {
+            const curve = new THREE.LineCurve3(start.clone(), end.clone());
+            const geometry = new THREE.TubeGeometry(
+                curve,
+                options.tubularSegments ?? Math.max(8, Math.floor(this.pointsCount / 4)),
+                radius,
+                options.radialSegments ?? 8,
+                false
+            );
+            const material = new THREE.MeshBasicMaterial({
+                color: options.color || this.activeColor,
+                transparent: true,
+                opacity: options.opacity ?? 1,
+                blending: THREE.AdditiveBlending,
+                depthTest: true
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.userData.curve = curve;
+            this.parent.add(mesh);
+            this.meshes.push(mesh);
+            return mesh;
+        }
+
+        const points = [start, end];
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+        const material = useDashes
+            ? new THREE.LineDashedMaterial({
+                color: options.color || this.activeColor,
+                transparent: true,
+                opacity: options.opacity ?? 0.8,
+                dashSize: options.dashSize ?? 0.03,
+                gapSize: options.gapSize ?? 0.02
+            })
+            : new THREE.LineBasicMaterial({
+                color: options.color || this.activeColor,
+                transparent: true,
+                opacity: options.opacity ?? 1
+            });
+
+        const line = new THREE.Line(geometry, material);
+        line.userData.curve = new THREE.LineCurve3(start.clone(), end.clone());
+
+        if (useDashes) {
+            line.computeLineDistances();
+        }
+
+        this.parent.add(line);
+        this.meshes.push(line);
+        return line;
+    }
+
     createArc(startVec, endVec, color = null) {
         console.log('[SatelliteConnector:createArc] Creating arc', {
             start: startVec.toArray(),
@@ -24,21 +95,7 @@ export class SatelliteConnector {
             color: color ? color.getHexString() : 'default'
         });
 
-        const start = startVec.clone();
-        const end = endVec.clone();
-
-        // will convert to local space if parent not in scene
-        if (this.parent !== this.scene) {
-            const worldToLocal = new THREE.Matrix4();
-            worldToLocal.copy(this.parent.matrixWorld).invert();
-            start.applyMatrix4(worldToLocal);
-            end.applyMatrix4(worldToLocal);
-
-            console.log('[SatelliteConnector:createArc] Converted to local space', {
-                localStart: start.toArray(),
-                localEnd: end.toArray()
-            });
-        }
+        const { start, end } = this.toParentSpace(startVec, endVec);
 
         const startNorm = start.clone().normalize();
         const endNorm = end.clone().normalize();
@@ -54,15 +111,10 @@ export class SatelliteConnector {
         // parallel vectors
         if (angle < 0.001) {
             console.log('[SatelliteConnector:createArc] Vectors nearly parallel, using straight line');
-            const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-            const material = new THREE.LineBasicMaterial({
+            const line = this.createStraightLine(startVec, endVec, {
                 color: color || this.activeColor,
-                transparent: false,
                 opacity: 1
             });
-            const line = new THREE.Line(geometry, material);
-            this.parent.add(line);
-            this.meshes.push(line);
 
             console.log('[SatelliteConnector:createArc] Line created', {
                 meshCount: this.meshes.length
@@ -153,7 +205,7 @@ export class SatelliteConnector {
     }
 
     // pulse effect
-    createTravelingPulse(arcMesh, duration = 1000) {
+    createTravelingPulse(arcMesh, duration = 1000, color = 0xffffff) {
         if (!arcMesh.userData.curve) {
             console.warn('[SatelliteConnector:createTravelingPulse] No curve data on mesh');
             return null;
@@ -165,7 +217,7 @@ export class SatelliteConnector {
 
         const pulseGeo = new THREE.SphereGeometry(0.015, 16, 16);
         const pulseMat = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
+            color,
             transparent: true,
             opacity: 0.4,
             blending: THREE.AdditiveBlending
