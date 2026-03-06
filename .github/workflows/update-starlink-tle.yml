@@ -2,19 +2,18 @@ name: Update Starlink TLE Data
 
 on:
   schedule:
-    # Runs every Sunday at 2:00 AM UTC
+    # Runs every day at 2:00 AM UTC
     - cron: '0 2 * * *'
   workflow_dispatch:  # Allows manual trigger from GitHub Actions tab
-  
 
 jobs:
   update-tle:
     runs-on: ubuntu-latest
     
     permissions:
-      contents: write      
-      pull-requests: write 
-      issues: write  
+      contents: write      # Required to commit changes
+      pull-requests: write # Required to create and merge pull requests
+      issues: write        # Required to create issues on failure
     
     steps:
       - name: Checkout repository
@@ -70,29 +69,52 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
       
-      - name: Commit and push changes
+      - name: Create Pull Request
         if: steps.check_changes.outputs.has_changes == 'true'
+        id: create_pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: update Starlink TLE data'
+          committer: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
+          author: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
+          branch: tle-update-${{ github.run_number }}
+          delete-branch: true
+          title: 'Update Starlink TLE Data'
+          body: |
+            ## Automated TLE Data Update
+            
+            **Satellites**: ${{ env.SATELLITE_COUNT }}
+            **Date**: ${{ github.run_date }}
+            **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            ### Validation Results
+            - Downloaded from CelesTrak
+            - Format validated (line count, TLE markers)
+            - Ready to merge
+            
+            ---
+            *This PR was automatically created and will auto-merge.*
+          labels: |
+            automation
+            data-update
+      
+      - name: Enable auto-merge
+        if: steps.check_changes.outputs.has_changes == 'true' && steps.create_pr.outputs.pull-request-number
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          
-          current_date=$(date -u +"%Y-%m-%d %H:%M UTC")
-          
-          git add public/data/starlink.tle
-          git commit -m "chore: update Starlink TLE data - $current_date" \
-                     -m "Updated constellation data with $SATELLITE_COUNT satellites"
-          
-          git push
+          gh pr merge --auto --squash ${{ steps.create_pr.outputs.pull-request-number }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Create success summary
         if: steps.check_changes.outputs.has_changes == 'true'
         run: |
-          echo "## TLE Update Successful" >> $GITHUB_STEP_SUMMARY
+          echo "## TLE Update PR Created and Auto-Merge Enabled" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Date**: $(date -u +"%Y-%m-%d %H:%M UTC")" >> $GITHUB_STEP_SUMMARY
-          echo "- **Satellites**: $SATELLITE_COUNT" >> $GITHUB_STEP_SUMMARY
-          echo "- **Source**: CelesTrak Starlink Group" >> $GITHUB_STEP_SUMMARY
-          echo "- **File**: \`public/data/starlink.tle\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR Number**: #${{ steps.create_pr.outputs.pull-request-number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Satellites**: ${{ env.SATELLITE_COUNT }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: \`tle-update-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: Will auto-merge immediately" >> $GITHUB_STEP_SUMMARY
       
       - name: Create no-change summary
         if: steps.check_changes.outputs.has_changes == 'false'
