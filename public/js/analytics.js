@@ -2,6 +2,8 @@
 Chart.defaults.color = '#cfe4ff';
 Chart.defaults.borderColor = 'rgba(100, 150, 255, 0.2)';
 
+const EARTH_RADIUS_KM = 6371;
+
 const colors = {
     bars: ['rgba(255, 105, 180, 0.8)', 'rgba(255, 159, 64, 0.8)', 'rgba(0, 255, 255, 0.8)'],
     borders: ['rgba(255, 105, 180, 1)', 'rgba(255, 159, 64, 1)', 'rgba(0, 255, 255, 1)'],
@@ -39,6 +41,7 @@ const elements = {
 const formatNumber = (value, metric) => {
     if (value === 0) return '0.00';
     if (metric === 'Hops') return Math.round(value).toString();
+    if (metric === 'Path Efficiency') return value.toFixed(1);
 
     const absValue = Math.abs(value);
     if (absValue >= 100) return value.toFixed(1);
@@ -47,6 +50,99 @@ const formatNumber = (value, metric) => {
 };
 
 const algoNameToKey = (name) => algorithm_mapping[name] || name.toLowerCase().replace(/\s+/g, '-');
+
+function toRadians(value) {
+    return (value * Math.PI) / 180;
+}
+
+function greatCircleDistanceKm(a, b) {
+    if (!a || !b || !Number.isFinite(a.lat) || !Number.isFinite(a.lon) || !Number.isFinite(b.lat) || !Number.isFinite(b.lon)) {
+        return 0;
+    }
+
+    const lat1 = toRadians(Number(a.lat));
+    const lat2 = toRadians(Number(b.lat));
+    const lon1 = toRadians(Number(a.lon));
+    const lon2 = toRadians(Number(b.lon));
+
+    const dLat = lat2 - lat1;
+    const dLon = lon2 - lon1;
+
+    const sinLat = Math.sin(dLat / 2);
+    const sinLon = Math.sin(dLon / 2);
+    const haversine = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+
+    return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(haversine)));
+}
+
+function geodeticToCartesian(lat, lon, altitudeKm = 0) {
+    const r = EARTH_RADIUS_KM + Number(altitudeKm || 0);
+    const phi = toRadians(90 - Number(lat));
+    const theta = toRadians(Number(lon) + 180);
+
+    return {
+        x: -r * Math.sin(phi) * Math.cos(theta),
+        y: r * Math.cos(phi),
+        z: r * Math.sin(phi) * Math.sin(theta)
+    };
+}
+
+function distanceKmBetweenPoints(p1, p2) {
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const dz = p2.z - p1.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+function computeActualSatellitePathDistanceKm(route) {
+    if (!route || !Array.isArray(route.satellitePositions) || route.satellitePositions.length === 0) {
+        return 0;
+    }
+
+    let total = 0;
+
+    const routePoints = [];
+
+    if (route.startLocation && Number.isFinite(Number(route.startLocation.lat)) && Number.isFinite(Number(route.startLocation.lon))) {
+        routePoints.push(geodeticToCartesian(route.startLocation.lat, route.startLocation.lon, 0));
+    }
+
+    for (const sat of route.satellitePositions) {
+        if (!sat || !Number.isFinite(Number(sat.lat)) || !Number.isFinite(Number(sat.lon))) continue;
+        routePoints.push(geodeticToCartesian(sat.lat, sat.lon, sat.altitude ?? 0));
+    }
+
+    if (route.endLocation && Number.isFinite(Number(route.endLocation.lat)) && Number.isFinite(Number(route.endLocation.lon))) {
+        routePoints.push(geodeticToCartesian(route.endLocation.lat, route.endLocation.lon, 0));
+    }
+
+    for (let i = 0; i < routePoints.length - 1; i++) {
+        total += distanceKmBetweenPoints(routePoints[i], routePoints[i + 1]);
+    }
+
+    return Number(total.toFixed(2));
+}
+
+function computePathEfficiencyPercentage(route) {
+    if (!route || !route.startLocation || !route.endLocation) {
+        return 0;
+    }
+
+    const directKm = greatCircleDistanceKm(route.startLocation, route.endLocation);
+    const actualKm = computeActualSatellitePathDistanceKm(route);
+
+    if (directKm <= 0 || actualKm <= 0) {
+        return 0;
+    }
+
+    return Number(((directKm / actualKm) * 100).toFixed(1));
+}
+
+function pathEfficiencyColor(percent) {
+    if (percent >= 70) return '#4caf50';
+    if (percent >= 40) return '#ffeb3b';
+    return '#ff9800';
+}
 
 // API Functions
 async function fetchLatestRoute() {
@@ -120,22 +216,30 @@ async function updateChart() {
     }
 
     elements.chartTitle.textContent = selectedMetric + ' Comparison';
-    const metricUnit = selectedMetric === 'Latency' ? 'ms' : (selectedMetric === 'Bandwidth' ? '%' : '');
+    const metricUnit = selectedMetric === 'Latency' ? 'ms' : (selectedMetric === 'Bandwidth' || selectedMetric === 'Path Efficiency' ? '%' : '');
 
     const metricValues = {};
     for (const algo of selectedAlgos) {
         const algoData = await fetchAlgorithmMetrics(algo);
         let value;
 
-        if (algoData) {
-            value = selectedMetric === 'Hops' ? algoData.hops :
-                selectedMetric === 'Latency' ? (algoData.latencyMs ?? algoData.latency) :
-                    algoData.bandwidth;
+        if (selectedMetric === 'Path Efficiency') {
+            value = computePathEfficiencyPercentage(state.currentRouteData);
+        } else {
+            if (algoData) {
+                value = selectedMetric === 'Hops' ? algoData.hops :
+                    selectedMetric === 'Latency' ? (algoData.latencyMs ?? algoData.latency) :
+                        algoData.bandwidth;
+            }
         }
 
         if (value === undefined || value === null) {
-            value = selectedMetric === 'Hops' ? (state.currentRouteData.hops || 0) :
-                selectedMetric === 'Latency' ? (state.currentRouteData.estimatedLatencyMs || 0) : 0;
+            if (selectedMetric === 'Path Efficiency') {
+                value = computePathEfficiencyPercentage(state.currentRouteData);
+            } else {
+                value = selectedMetric === 'Hops' ? (state.currentRouteData.hops || 0) :
+                    selectedMetric === 'Latency' ? (state.currentRouteData.estimatedLatencyMs || 0) : 0;
+            }
         }
 
         metricValues[algo] = value;
@@ -263,23 +367,31 @@ async function updateWrittenAnalytics() {
         for (const metric of metricsToShow) {
             let val;
 
-            if (algoData) {
+            if (metric === 'Path Efficiency') {
+                val = computePathEfficiencyPercentage(state.currentRouteData);
+            } else if (algoData) {
                 val = metric === 'Hops' ? algoData.hops :
                     metric === 'Latency' ? (algoData.latencyMs ?? algoData.latency) :
                         algoData.bandwidth;
             }
 
             if (val === undefined || val === null) {
-                val = metric === 'Hops' ? (state.currentRouteData.hops || 0) :
-                    metric === 'Latency' ? (state.currentRouteData.estimatedLatencyMs || 0) : 0;
+                if (metric === 'Path Efficiency') {
+                    val = computePathEfficiencyPercentage(state.currentRouteData);
+                } else {
+                    val = metric === 'Hops' ? (state.currentRouteData.hops || 0) :
+                        metric === 'Latency' ? (state.currentRouteData.estimatedLatencyMs || 0) : 0;
+                }
             }
 
             const unit = metric === 'Latency' ? 'ms' : (metric === 'Hops' ? '' : '%');
+            const metricColor = metric === 'Path Efficiency' ? pathEfficiencyColor(val) : '#7eb8ff';
+
             const item = document.createElement('div');
             item.className = 'metric-item';
             item.innerHTML = `
                 <span>${metric}</span>
-                <span style="color:#7eb8ff; font-family:monospace;">
+                <span style="color:${metricColor}; font-family:monospace; font-weight:700;">
                     ${formatNumber(val, metric)}${unit}
                 </span>
             `;
