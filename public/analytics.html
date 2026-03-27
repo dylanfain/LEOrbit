@@ -94,6 +94,14 @@
         .control-group {
             margin-top: 20px;
         }
+        .control-section {
+            padding-bottom: 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .control-section:last-of-type {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
         .control-group label {
             display: block;
             font-size: 12px;
@@ -132,11 +140,42 @@
         }
         #written-analytics {
             display: none;
-            margin-top: auto;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            padding-top: 20px;
-            max-height: 40%;
+            margin-top: 14px;
+            max-height: 38vh;
             overflow-y: auto;
+        }
+        .collapsible-trigger {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(100, 150, 255, 0.25);
+            background: rgba(30, 60, 120, 0.45);
+            color: #cfe4ff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .collapsible-trigger:hover {
+            background: rgba(45, 78, 145, 0.55);
+            border-color: rgba(126, 184, 255, 0.45);
+        }
+        .collapsible-trigger .chevron {
+            font-size: 16px;
+            color: #7eb8ff;
+            transition: transform 0.2s ease;
+        }
+        .collapsible-trigger[aria-expanded="true"] .chevron {
+            transform: rotate(180deg);
+        }
+        .collapsible-content {
+            display: none;
+        }
+        .collapsible-content.open {
+            display: block;
         }
         .algo-block {
             background: rgba(255, 255, 255, 0.05);
@@ -219,19 +258,11 @@
             background: rgba(80, 140, 255, 1);
             color: #fff;
         }
-        .checkbox-control {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .checkbox-control label {
-            margin: 0;
-            cursor: pointer;
-        }
-
-        .checkbox-control input[type="checkbox"] {
-            cursor: pointer;
+        .section-copy {
+            margin: 8px 0 0 0;
+            color: #9eb7d8;
+            font-size: 12px;
+            line-height: 1.4;
         }
     </style>
     <!-- import map for Three.js -->
@@ -248,47 +279,45 @@
 <div class="app-container">
     <!-- Left sidebar control panel -->
     <div id="ui-panel">
-        <h2>📡 Routing Analytics</h2>
+        <h2>Routing Analytics</h2>
         <!-- Active route information display -->
         <div id="active-route-display" class="route-info-badge">
             No active route selected.
         </div>
         <!-- Algorithm selection toggles -->
-        <div class="control-group">
-            <label>Select Algorithms</label>
-            <div>
-                <span class="toggle-button active" data-algo="shortest-path">Shortest Path</span>
-                <span class="toggle-button" data-algo="minimum-latency">Minimum Latency</span>
-                <span class="toggle-button" data-algo="load-balanced">Load Balanced</span>
+        <div class="control-section">
+            <div class="control-group">
+                <label>Select Algorithms</label>
+                <div>
+                    <span class="toggle-button active" data-algo="shortest-path">Shortest Path</span>
+                    <span class="toggle-button" data-algo="minimum-latency">Minimum Latency</span>
+                    <span class="toggle-button" data-algo="load-balanced">Load Balanced</span>
+                </div>
+            </div>
+            <!-- Metric selection radio buttons -->
+            <div class="control-group">
+                <label>Select Metric to Chart</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="metric" value="Hops" checked> Hop Count</label>
+                    <label><input type="radio" name="metric" value="Latency"> Avg Latency (ms)</label>
+                    <label><input type="radio" name="metric" value="Bandwidth"> Bandwidth Usage (%)</label>
+                    <label><input type="radio" name="metric" value="Path Efficiency"> Path Efficiency (%)</label>
+                </div>
             </div>
         </div>
-        <!-- Metric selection radio buttons -->
-        <div class="control-group">
-            <label>Select Metric to Chart</label>
-            <div class="radio-group">
-                <label><input type="radio" name="metric" value="Hops" checked> Hop Count</label>
-                <label><input type="radio" name="metric" value="Latency"> Avg Latency (ms)</label>
-                <label><input type="radio" name="metric" value="Bandwidth"> Bandwidth Usage (%)</label>
-                <label><input type="radio" name="metric" value="Path Efficiency"> Path Efficiency (%)</label>
+        <div class="control-section">
+            <div class="control-group">
+                <label>Select Additional Metrics</label>
+                <button id="written-analytics-toggle" class="collapsible-trigger" type="button" aria-expanded="false" aria-controls="written-analytics-panel">
+                    <span>Show written analytics</span>
+                    <span class="chevron">▼</span>
+                </button>
+                <p class="section-copy">Opens a written breakdown for every selected algorithm and includes all available metrics.</p>
+                <div id="written-analytics-panel" class="collapsible-content">
+                    <div id="written-analytics"></div>
+                </div>
             </div>
         </div>
-        <!-- Toggle for written analytics display -->
-        <div class="control-group checkbox-control">
-            <input type="checkbox" id="show-summary">
-            <label for="show-summary">Show Written Analytics</label>
-        </div>
-        <!-- Additional metrics selection (shown when single algorithm selected) -->
-        <div class="control-group">
-            <label>Select Additional Metrics</label>
-            <div class="radio-group">
-                <label><input type="checkbox" name="extra-metrics" value="Hops"> Hops</label>
-                <label><input type="checkbox" name="extra-metrics" value="Latency"> Latency</label>
-                <label><input type="checkbox" name="extra-metrics" value="Bandwidth"> Bandwidth</label>
-                <label><input type="checkbox" name="extra-metrics" value="Path Efficiency"> Path Efficiency</label>
-            </div>
-        </div>
-        <!-- Written analytics container (populated dynamically) -->
-        <div id="written-analytics"></div>
     </div>
 
     <!-- Right side main content area -->

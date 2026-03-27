@@ -77,7 +77,7 @@ Response:
   },
   "endSatellite": { "...": "..." },
   "path": [120, 486, 913, 32],
-  "hops": 3,
+  "hops": 5,
   "estimatedLatencyMs": 13.7,
   "timestamp": "2026-02-11T21:17:00.123Z"
 }
@@ -85,6 +85,7 @@ Response:
 
 - Returns `400` if the payload is malformed.
 - Returns `503` if the constellation is not ready or no viable path exists.
+- `hops` includes the two ground-to-satellite links in addition to satellite-to-satellite hops.
 
 ### `GET /api/route`
 

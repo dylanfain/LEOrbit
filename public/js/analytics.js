@@ -21,15 +21,16 @@ let state = {
     currentRouteData: null,
     algorithmCache: {},
     chartInstance: null,
-    currentChartType: 'bar'
+    currentChartType: 'bar',
+    writtenAnalyticsOpen: false
 };
 
 // DOM Elements
 const elements = {
     algoButtons: document.querySelectorAll('.toggle-button'),
-    summaryCheckbox: document.getElementById('show-summary'),
+    writtenToggle: document.getElementById('written-analytics-toggle'),
+    writtenPanel: document.getElementById('written-analytics-panel'),
     writtenDiv: document.getElementById('written-analytics'),
-    extraMetricCheckboxes: document.querySelectorAll('input[name="extra-metrics"]'),
     metricRadios: document.querySelectorAll('input[name="metric"]'),
     routeDisplay: document.getElementById('active-route-display'),
     chartTypeButtons: document.querySelectorAll('.chart-type-btn'),
@@ -144,6 +145,50 @@ function pathEfficiencyColor(percent) {
     return '#ff9800';
 }
 
+function getSelectedAlgorithms() {
+    return Array.from(elements.algoButtons)
+        .filter(button => button.classList.contains('active'))
+        .map(button => button.textContent.trim());
+}
+
+function getDisplayedHopCount(routeData, algoData = null) {
+    if (Array.isArray(routeData?.path) && routeData.path.length > 0) {
+        return routeData.path.length + 1;
+    }
+
+    if (typeof algoData?.pathLength === 'number' && algoData.pathLength > 0) {
+        return algoData.pathLength + 1;
+    }
+
+    if (typeof algoData?.hops === 'number') {
+        return algoData.hops;
+    }
+
+    return typeof routeData?.hops === 'number' ? routeData.hops : 0;
+}
+
+function getMetricValue(metric, algoData, routeData) {
+    if (metric === 'Path Efficiency') {
+        return computePathEfficiencyPercentage(routeData);
+    }
+
+    if (metric === 'Hops') {
+        return getDisplayedHopCount(routeData, algoData);
+    }
+
+    if (algoData) {
+        return metric === 'Latency' ? (algoData.latencyMs ?? algoData.latency) : algoData.bandwidth;
+    }
+
+    return metric === 'Latency' ? (routeData.estimatedLatencyMs || 0) : 0;
+}
+
+function syncWrittenAnalyticsVisibility() {
+    elements.writtenToggle.setAttribute('aria-expanded', String(state.writtenAnalyticsOpen));
+    elements.writtenPanel.classList.toggle('open', state.writtenAnalyticsOpen);
+    elements.writtenDiv.style.display = state.writtenAnalyticsOpen ? 'block' : 'none';
+}
+
 // API Functions
 async function fetchLatestRoute() {
     try {
@@ -201,9 +246,7 @@ function updateUI() {
 }
 
 async function updateChart() {
-    const selectedAlgos = Array.from(elements.algoButtons)
-        .filter(b => b.classList.contains('active'))
-        .map(b => b.textContent.trim());
+    const selectedAlgos = getSelectedAlgorithms();
     const selectedMetric = document.querySelector('input[name="metric"]:checked')?.value || 'Hops';
 
     if (!state.currentRouteData?.startLocation) {
@@ -221,25 +264,10 @@ async function updateChart() {
     const metricValues = {};
     for (const algo of selectedAlgos) {
         const algoData = await fetchAlgorithmMetrics(algo);
-        let value;
-
-        if (selectedMetric === 'Path Efficiency') {
-            value = computePathEfficiencyPercentage(state.currentRouteData);
-        } else {
-            if (algoData) {
-                value = selectedMetric === 'Hops' ? algoData.hops :
-                    selectedMetric === 'Latency' ? (algoData.latencyMs ?? algoData.latency) :
-                        algoData.bandwidth;
-            }
-        }
+        let value = getMetricValue(selectedMetric, algoData, state.currentRouteData);
 
         if (value === undefined || value === null) {
-            if (selectedMetric === 'Path Efficiency') {
-                value = computePathEfficiencyPercentage(state.currentRouteData);
-            } else {
-                value = selectedMetric === 'Hops' ? (state.currentRouteData.hops || 0) :
-                    selectedMetric === 'Latency' ? (state.currentRouteData.estimatedLatencyMs || 0) : 0;
-            }
+            value = getMetricValue(selectedMetric, null, state.currentRouteData);
         }
 
         metricValues[algo] = value;
@@ -254,6 +282,7 @@ function createChart(metricValues, metricName, unit) {
     const labels = Object.keys(metricValues);
     const data = Object.values(metricValues);
     const isLine = state.currentChartType === 'line';
+    const isPercentageMetric = metricName === 'Bandwidth' || metricName === 'Path Efficiency';
 
     const config = {
         type: state.currentChartType,
@@ -303,6 +332,7 @@ function createChart(metricValues, metricName, unit) {
             scales: {
                 y: {
                     beginAtZero: true,
+                    max: isPercentageMetric ? 100 : undefined,
                     title: {
                         display: true,
                         text: `${metricName} ${unit}`,
@@ -312,7 +342,7 @@ function createChart(metricValues, metricName, unit) {
                     ticks: {
                         color: '#cfe4ff',
                         font: { size: 12 },
-                        stepSize: metricName === 'Hops' ? 1 : undefined,
+                        stepSize: metricName === 'Hops' ? 1 : (isPercentageMetric ? 20 : undefined),
                         callback: (value) => formatNumber(value, metricName)
                     },
                     grid: { color: 'rgba(100, 150, 255, 0.1)' }
@@ -329,30 +359,25 @@ function createChart(metricValues, metricName, unit) {
 }
 
 async function updateWrittenAnalytics() {
-    const selectedAlgos = Array.from(elements.algoButtons)
-        .filter(b => b.classList.contains('active'))
-        .map(b => b.textContent.trim());
+    syncWrittenAnalyticsVisibility();
 
-    if (!elements.summaryCheckbox.checked) {
-        elements.writtenDiv.style.display = 'none';
+    if (!state.writtenAnalyticsOpen) {
         return;
     }
+
+    const selectedAlgos = getSelectedAlgorithms();
 
     if (!state.currentRouteData?.startLocation) {
         elements.writtenDiv.innerHTML = '<div style="color: #aaa;">No route data available</div>';
-        elements.writtenDiv.style.display = 'block';
         return;
     }
 
-    let metricsToShow = [document.querySelector('input[name="metric"]:checked').value];
-
-    if (selectedAlgos.length === 1) {
-        metricsToShow = Array.from(elements.extraMetricCheckboxes)
-            .filter(cb => cb.checked)
-            .map(cb => cb.value);
-        const currentMain = document.querySelector('input[name="metric"]:checked').value;
-        if (!metricsToShow.includes(currentMain)) metricsToShow.unshift(currentMain);
+    if (selectedAlgos.length === 0) {
+        elements.writtenDiv.innerHTML = '<div style="color: #aaa;">Select at least one algorithm to view written analytics</div>';
+        return;
     }
+
+    const metricsToShow = ['Hops', 'Latency', 'Bandwidth', 'Path Efficiency'];
 
     elements.writtenDiv.innerHTML = '<div style="color: #aaa; margin-bottom: 10px;">Loading analytics...</div>';
     const container = document.createElement('div');
@@ -365,23 +390,10 @@ async function updateWrittenAnalytics() {
         const algoData = await fetchAlgorithmMetrics(algo);
 
         for (const metric of metricsToShow) {
-            let val;
-
-            if (metric === 'Path Efficiency') {
-                val = computePathEfficiencyPercentage(state.currentRouteData);
-            } else if (algoData) {
-                val = metric === 'Hops' ? algoData.hops :
-                    metric === 'Latency' ? (algoData.latencyMs ?? algoData.latency) :
-                        algoData.bandwidth;
-            }
+            let val = getMetricValue(metric, algoData, state.currentRouteData);
 
             if (val === undefined || val === null) {
-                if (metric === 'Path Efficiency') {
-                    val = computePathEfficiencyPercentage(state.currentRouteData);
-                } else {
-                    val = metric === 'Hops' ? (state.currentRouteData.hops || 0) :
-                        metric === 'Latency' ? (state.currentRouteData.estimatedLatencyMs || 0) : 0;
-                }
+                val = getMetricValue(metric, null, state.currentRouteData);
             }
 
             const unit = metric === 'Latency' ? 'ms' : (metric === 'Hops' ? '' : '%');
@@ -402,7 +414,6 @@ async function updateWrittenAnalytics() {
 
     elements.writtenDiv.innerHTML = '';
     elements.writtenDiv.appendChild(container);
-    elements.writtenDiv.style.display = 'block';
 }
 
 // Event Listeners
@@ -417,8 +428,10 @@ elements.metricRadios.forEach(radio => radio.addEventListener('change', () => {
     updateWrittenAnalytics();
 }));
 
-elements.extraMetricCheckboxes.forEach(cb => cb.addEventListener('change', updateWrittenAnalytics));
-elements.summaryCheckbox.addEventListener('change', updateWrittenAnalytics);
+elements.writtenToggle.addEventListener('click', () => {
+    state.writtenAnalyticsOpen = !state.writtenAnalyticsOpen;
+    updateWrittenAnalytics();
+});
 
 elements.chartTypeButtons.forEach(btn => btn.addEventListener('click', () => {
     elements.chartTypeButtons.forEach(b => b.classList.remove('active'));
@@ -428,5 +441,6 @@ elements.chartTypeButtons.forEach(btn => btn.addEventListener('click', () => {
 }));
 
 // Initialize
+syncWrittenAnalyticsVisibility();
 setInterval(fetchLatestRoute, 3000);
 fetchLatestRoute();
