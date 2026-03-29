@@ -17,7 +17,7 @@ export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
 
   // Edge case
   if (sourceId === destinationId) {
-    return { path: [sourceId], hops: 0, cost: 0 };
+    return { path: [sourceId], satelliteHops: 0, totalHops: 2, cost: 0 };
   }
 
   // Collect all node ids that appear as keys or as targets
@@ -35,33 +35,25 @@ export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
   const dist = new Map();
   const prev = new Map();
   const visited = new Set();
+  const heap = new MinHeap();
 
   for (const node of nodes) {
     dist.set(node, Infinity);
     prev.set(node, null);
   }
   dist.set(sourceId, 0);
+  heap.push({ node: sourceId, cost: 0 });
 
-  // Helper: find unvisited node with smallest distance
-  function extractMin() {
-    let bestNode = null;
-    let bestDist = Infinity;
+  while (heap.size() > 0) {
+    const current = heap.pop();
+    const u = current.node;
+    const uCost = current.cost;
 
-    for (const [node, d] of dist.entries()) {
-      if (!visited.has(node) && d < bestDist) {
-        bestDist = d;
-        bestNode = node;
-      }
-    }
-    return bestNode;
-  }
-
-  while (visited.size < nodes.size) {
-    const u = extractMin();
-    if (u === null) break;              // remaining nodes unreachable
-    if (u === destinationId) break;     // found best path to destination
+    if (visited.has(u)) continue;
+    if (uCost > dist.get(u)) continue;
 
     visited.add(u);
+    if (u === destinationId) break;     // found best path to destination
 
     const neighbors = graph.get(Number(u)) || [];
     for (const edge of neighbors) {
@@ -74,6 +66,7 @@ export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
       if (alt < dist.get(v)) {
         dist.set(v, alt);
         prev.set(v, u);
+        heap.push({ node: v, cost: alt });
       }
     }
   }
@@ -96,8 +89,9 @@ export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
 
   return {
     path,
-    hops: path.length - 1,
-    cost: dist.get(destinationId) // same as hops in this weighting
+    satelliteHops: path.length - 1,
+    totalHops: path.length + 1,
+    cost: dist.get(destinationId)
   };
 }
 
@@ -130,4 +124,67 @@ function normalizeGraph(graph) {
   }
 
   return result;
+}
+
+class MinHeap {
+  constructor() {
+    this.data = [];
+  }
+
+  size() {
+    return this.data.length;
+  }
+
+  push(item) {
+    this.data.push(item);
+    this.bubbleUp(this.data.length - 1);
+  }
+
+  pop() {
+    if (this.data.length === 0) return null;
+
+    const min = this.data[0];
+    const last = this.data.pop();
+
+    if (this.data.length > 0) {
+      this.data[0] = last;
+      this.bubbleDown(0);
+    }
+
+    return min;
+  }
+
+  bubbleUp(index) {
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2);
+      if (this.data[parent].cost <= this.data[index].cost) break;
+      this.swap(index, parent);
+      index = parent;
+    }
+  }
+
+  bubbleDown(index) {
+    const length = this.data.length;
+
+    while (true) {
+      const left = index * 2 + 1;
+      const right = index * 2 + 2;
+      let smallest = index;
+
+      if (left < length && this.data[left].cost < this.data[smallest].cost) {
+        smallest = left;
+      }
+      if (right < length && this.data[right].cost < this.data[smallest].cost) {
+        smallest = right;
+      }
+      if (smallest === index) break;
+
+      this.swap(index, smallest);
+      index = smallest;
+    }
+  }
+
+  swap(i, j) {
+    [this.data[i], this.data[j]] = [this.data[j], this.data[i]];
+  }
 }
