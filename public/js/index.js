@@ -56,6 +56,8 @@ scene.add(directionalLight);
 // ============== Location Markers ==============
 const BASE_MARKER_SCALE = 0.06;
 const REFERENCE_DISTANCE = 2.0; // Camera distance at which markers are "normal" size
+const MARKER_SCALE_EPSILON = 0.0001;
+const LOCATION_SEARCH_DEBOUNCE_MS = 180;
 
 function createLocationMarker(texturePath) {
     const texture = textureLoader.load(texturePath);
@@ -73,6 +75,7 @@ function createLocationMarker(texturePath) {
 
 const startMarker = createLocationMarker('/textures/location_start.png');
 const endMarker = createLocationMarker('/textures/location_end.png');
+let lastMarkerScale = null;
 
 const routeStats = {
     hops: document.getElementById('route-hops'),
@@ -107,7 +110,6 @@ function positionMarkerAtLocation(marker, lat, lon) {
 }
 
 function lookAtLocation(lat, lon) {
-    const targetPoint = latLonToVector3(lat, lon, 1.0);
     const cameraPos = latLonToVector3(lat, lon, 3.0);
 
     camera.position.copy(cameraPos);
@@ -119,24 +121,35 @@ function updateMarkerScales() {
     const cameraDistance = camera.position.length();
     const scale = (cameraDistance / REFERENCE_DISTANCE) * BASE_MARKER_SCALE;
 
+    if (lastMarkerScale !== null && Math.abs(scale - lastMarkerScale) < MARKER_SCALE_EPSILON) {
+        return;
+    }
+
     startMarker.scale.setScalar(scale);
     endMarker.scale.setScalar(scale);
+    lastMarkerScale = scale;
 }
 
 // ============== Satellite Configuration ==============
 const satelliteGeo = new THREE.SphereGeometry(0.005, 8, 8);
-let satelliteScale = 0.75;
+let satelliteScale = 0.5;
 let currentSatelliteColor = new THREE.Color(0xffffff);
 let altitudeModeEnabled = false;
 let minAltitude = 0;
 let maxAltitude = 0;
 
 const satelliteMeshes = []; // Three.js meshes
+const satelliteMeshById = new Map();
 let constellation = null;   // Loaded by loadConstellation()
 
 // ============== Route Highlighting ==============
-const ROUTE_HIGHLIGHT_COLOR = new THREE.Color(0x00e5ff);
-const ROUTE_HIGHLIGHT_SCALE_MULTIPLIER = 1.8;
+const ROUTE_HIGHLIGHT_COLOR = new THREE.Color(0xaa00ff);
+const ROUTE_HIGHLIGHT_SCALE_MULTIPLIER = 2.0;
+const ROUTE_LOOP_DELAY_MS = 750;
+const ROUTE_SEGMENT_TRAVEL_MS = 800;
+const ROUTE_GROUND_LINK_COLOR = ROUTE_HIGHLIGHT_COLOR.clone();
+const ROUTE_PULSE_COLOR = new THREE.Color(0xff4fd8);
+const routeHighlightHaloGeo = new THREE.SphereGeometry(0.01, 12, 12);
 let highlightedSatIds = new Set(); // ids of local meshes highlighted (for UI updates)
 
 function getAltitudeColor(altitude) {
@@ -165,6 +178,43 @@ function applyBaseSatelliteStyle(mesh) {
     else mesh.material.color.copy(currentSatelliteColor);
 
     mesh.scale.setScalar(satelliteScale);
+    toggleRouteHighlightHalo(mesh, false);
+}
+
+function ensureRouteHighlightHalo(mesh) {
+    if (!mesh.userData.routeHighlightHalo) {
+        const haloMaterial = new THREE.MeshBasicMaterial({
+            color: ROUTE_HIGHLIGHT_COLOR.clone(),
+            transparent: true,
+            opacity: 0.28,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+        const halo = new THREE.Mesh(routeHighlightHaloGeo, haloMaterial);
+        halo.scale.setScalar(1.9);
+        halo.visible = false;
+        mesh.add(halo);
+        mesh.userData.routeHighlightHalo = halo;
+    }
+
+    return mesh.userData.routeHighlightHalo;
+}
+
+function toggleRouteHighlightHalo(mesh, isVisible) {
+    if (isVisible) {
+        ensureRouteHighlightHalo(mesh).visible = true;
+        return;
+    }
+
+    if (mesh.userData.routeHighlightHalo) {
+        mesh.userData.routeHighlightHalo.visible = false;
+    }
+}
+
+function applyHighlightedSatelliteStyle(mesh) {
+    mesh.material.color.copy(ROUTE_HIGHLIGHT_COLOR);
+    mesh.scale.setScalar(satelliteScale * ROUTE_HIGHLIGHT_SCALE_MULTIPLIER);
+    toggleRouteHighlightHalo(mesh, true);
 }
 
 function isSatHighlighted(mesh) {
@@ -181,7 +231,7 @@ function updateSatelliteColors() {
     // Respect highlighting (don't overwrite route sats when toggling modes/colors)
     satelliteMeshes.forEach((mesh) => {
         if (isSatHighlighted(mesh)) {
-            mesh.material.color.copy(ROUTE_HIGHLIGHT_COLOR);
+            applyHighlightedSatelliteStyle(mesh);
             return;
         }
         applyBaseSatelliteStyle(mesh);
@@ -215,8 +265,8 @@ function findNearestSatelliteMesh(worldPos, maxDistance = 0.03) {
     return bestMesh;
 }
 
-// Highlight satellites by trusting backend positions
-function highlightSatellitesFromPositions(satellitePositions = []) {
+// Highlight satellites by trusting backend ids first, then positions as fallback
+function highlightSatellitesFromRoute(satelliteIds = [], satellitePositions = []) {
     highlightedSatIds.clear();
 
     if (!Array.isArray(satellitePositions) || satellitePositions.length === 0) {
@@ -227,14 +277,19 @@ function highlightSatellitesFromPositions(satellitePositions = []) {
 
     let matched = 0;
 
-    for (const pos of satellitePositions) {
+    for (let i = 0; i < satellitePositions.length; i++) {
+        const pos = satellitePositions[i];
         if (!pos) continue;
         if (!Number.isFinite(Number(pos.lat)) || !Number.isFinite(Number(pos.lon))) continue;
 
         const v = satPosToVector3(pos);
+        const id = Number(satelliteIds[i]);
+        let mesh = Number.isFinite(id) ? satelliteMeshById.get(id) : null;
 
-        // want to highlight th best we can, so slight mismatch tolerance
-        const mesh = findNearestSatelliteMesh(v, 0.08);
+        // fallback if backend id is missing or local mesh id lookup failed
+        if (!mesh) {
+            mesh = findNearestSatelliteMesh(v, 0.08);
+        }
         if (!mesh) continue;
 
         // backend has authority, trust their mesh
@@ -246,8 +301,7 @@ function highlightSatellitesFromPositions(satellitePositions = []) {
 
     satelliteMeshes.forEach((mesh) => {
         if (highlightedSatIds.has(Number(mesh.userData.node.id))) {
-            mesh.material.color.copy(ROUTE_HIGHLIGHT_COLOR);
-            mesh.scale.setScalar(satelliteScale * ROUTE_HIGHLIGHT_SCALE_MULTIPLIER);
+            applyHighlightedSatelliteStyle(mesh);
         } else {
             applyBaseSatelliteStyle(mesh);
         }
@@ -258,13 +312,26 @@ function highlightSatellitesFromPositions(satellitePositions = []) {
 
 // ============== Route Visualization ==============
 function visualizeRoutePath(satelliteIds, satellitePositions) {
-    if (!Array.isArray(satelliteIds) || satelliteIds.length < 2) return;
-    if (!Array.isArray(satellitePositions) || satellitePositions.length < 2) return;
+    if (!Array.isArray(satelliteIds) || satelliteIds.length < 1) return;
+    if (!Array.isArray(satellitePositions) || satellitePositions.length < 1) return;
 
     const R_EARTH_KM = 6371;
     const pathSegments = [];
+    const firstSat = satellitePositions[0];
+    const lastSat = satellitePositions[satellitePositions.length - 1];
 
-    // Satellite → satellite hops only
+    if (startLocation && firstSat) {
+        pathSegments.push({
+            start: latLonToVector3(startLocation.lat, startLocation.lon, 1.005),
+            end: latLonToVector3(firstSat.lat, firstSat.lon, 1 + (Number(firstSat.altitude ?? 0) / R_EARTH_KM)),
+            color: ROUTE_GROUND_LINK_COLOR,
+            style: 'line',
+            animate: false,
+            opacity: 0.5,
+            radius: 0.0035
+        });
+    }
+
     for (let i = 0; i < satelliteIds.length - 1; i++) {
         const from = satellitePositions[i];
         const to = satellitePositions[i + 1];
@@ -272,10 +339,33 @@ function visualizeRoutePath(satelliteIds, satellitePositions) {
 
         const fromPos = latLonToVector3(from.lat, from.lon, 1 + (Number(from.altitude ?? 0) / R_EARTH_KM));
         const toPos = latLonToVector3(to.lat, to.lon, 1 + (Number(to.altitude ?? 0) / R_EARTH_KM));
-        pathSegments.push({ start: fromPos, end: toPos, color: new THREE.Color(0xaa00ff) });
+        pathSegments.push({
+            start: fromPos,
+            end: toPos,
+            color: ROUTE_HIGHLIGHT_COLOR,
+            pulseColor: ROUTE_PULSE_COLOR,
+            style: 'arc',
+            animate: true,
+            pulseDuration: ROUTE_SEGMENT_TRAVEL_MS
+        });
     }
 
-    pathAnimator.animatePath(pathSegments, 250);
+    if (endLocation && lastSat) {
+        pathSegments.push({
+            start: latLonToVector3(lastSat.lat, lastSat.lon, 1 + (Number(lastSat.altitude ?? 0) / R_EARTH_KM)),
+            end: latLonToVector3(endLocation.lat, endLocation.lon, 1.005),
+            color: ROUTE_GROUND_LINK_COLOR,
+            style: 'line',
+            animate: false,
+            opacity: 0.5,
+            radius: 0.0035
+        });
+    }
+
+    pathAnimator.animatePath(pathSegments, {
+        defaultPulseDuration: ROUTE_SEGMENT_TRAVEL_MS,
+        loopDelayMs: ROUTE_LOOP_DELAY_MS
+    });
 }
 
 // ============== Initialize Constellation ==============
@@ -316,6 +406,7 @@ async function initConstellation() {
 
             earth.add(mesh);
             satelliteMeshes.push(mesh);
+            satelliteMeshById.set(Number(satNode.id), mesh);
         });
 
         console.log(`Positioned ${satelliteMeshes.length} satellites`);
@@ -401,7 +492,7 @@ async function sendRouteToBackend() {
 
         // highlight + animate route using backend-provided satellitePositions
         if (Array.isArray(data.path) && data.path.length > 0) {
-            highlightSatellitesFromPositions(data.satellitePositions);
+            highlightSatellitesFromRoute(data.path, data.satellitePositions);
             visualizeRoutePath(data.path, data.satellitePositions);
         }
     } catch (error) {
@@ -416,6 +507,8 @@ async function sendRouteToBackend() {
 function setupLocationInput(inputId, dropdownId, isStart) {
     const input = document.getElementById(inputId);
     const dropdown = document.getElementById(dropdownId);
+    let activeSearchToken = 0;
+    let debounceTimer = null;
 
     input.addEventListener('input', async (e) => {
         const query = e.target.value;
@@ -427,6 +520,11 @@ function setupLocationInput(inputId, dropdownId, isStart) {
         updateRunButtonState();
 
         if (query.length < 3) {
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+                debounceTimer = null;
+            }
+            activeSearchToken += 1;
             dropdown.classList.remove('visible');
             return;
         }
@@ -434,47 +532,62 @@ function setupLocationInput(inputId, dropdownId, isStart) {
         dropdown.innerHTML = '<div class="dropdown-item loading">Searching...</div>';
         dropdown.classList.add('visible');
 
-        try {
-            const results = await locationService.search(query);
-
-            if (results.length === 0) {
-                dropdown.innerHTML = '<div class="dropdown-item no-results">No results found</div>';
-                return;
-            }
-
-            dropdown.innerHTML = results.map((r, i) => `
-                <div class="dropdown-item" data-index="${i}">
-                    ${r.displayName}
-                </div>
-            `).join('');
-
-            // Attach click handlers
-            dropdown.querySelectorAll('.dropdown-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    const index = parseInt(item.dataset.index);
-                    const selected = results[index];
-
-                    input.value = selected.displayName.split(',')[0]; // Short name
-                    dropdown.classList.remove('visible');
-
-                    if (isStart) {
-                        startLocation = selected;
-                        positionMarkerAtLocation(startMarker, selected.lat, selected.lon);
-                        lookAtLocation(selected.lat, selected.lon);
-                    } else {
-                        endLocation = selected;
-                        positionMarkerAtLocation(endMarker, selected.lat, selected.lon);
-                        lookAtLocation(selected.lat, selected.lon);
-                    }
-
-                    updateRunButtonState();
-                });
-            });
-
-        } catch (error) {
-            console.error('Search error:', error);
-            dropdown.innerHTML = '<div class="dropdown-item error">Search failed</div>';
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
         }
+
+        const searchToken = ++activeSearchToken;
+
+        debounceTimer = setTimeout(async () => {
+            try {
+                const results = await locationService.search(query);
+
+                if (searchToken !== activeSearchToken || input.value !== query) {
+                    return;
+                }
+
+                if (results.length === 0) {
+                    dropdown.innerHTML = '<div class="dropdown-item no-results">No results found</div>';
+                    return;
+                }
+
+                dropdown.innerHTML = results.map((r, i) => `
+                    <div class="dropdown-item" data-index="${i}">
+                        ${r.displayName}
+                    </div>
+                `).join('');
+
+                dropdown.querySelectorAll('.dropdown-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const index = parseInt(item.dataset.index, 10);
+                        const selected = results[index];
+
+                        input.value = selected.displayName.split(',')[0]; // Short name
+                        dropdown.classList.remove('visible');
+                        activeSearchToken += 1;
+
+                        if (isStart) {
+                            startLocation = selected;
+                            positionMarkerAtLocation(startMarker, selected.lat, selected.lon);
+                            lookAtLocation(selected.lat, selected.lon);
+                        } else {
+                            endLocation = selected;
+                            positionMarkerAtLocation(endMarker, selected.lat, selected.lon);
+                            lookAtLocation(selected.lat, selected.lon);
+                        }
+
+                        updateRunButtonState();
+                    });
+                });
+            } catch (error) {
+                if (searchToken !== activeSearchToken) {
+                    return;
+                }
+
+                console.error('Search error:', error);
+                dropdown.innerHTML = '<div class="dropdown-item error">Search failed</div>';
+            }
+        }, LOCATION_SEARCH_DEBOUNCE_MS);
     });
 
     // Hide dropdown when clicking outside
@@ -528,11 +641,12 @@ sizeSlider.addEventListener('input', (e) => {
 
     // Preserve highlight multiplier when resizing
     satelliteMeshes.forEach((mesh) => {
-        mesh.scale.setScalar(
-            isSatHighlighted(mesh)
-                ? satelliteScale * ROUTE_HIGHLIGHT_SCALE_MULTIPLIER
-                : satelliteScale
-        );
+        if (isSatHighlighted(mesh)) {
+            applyHighlightedSatelliteStyle(mesh);
+            return;
+        }
+
+        mesh.scale.setScalar(satelliteScale);
     });
 });
 
