@@ -264,13 +264,13 @@ async function updateWrittenAnalytics() {
             let val;
 
             if (algoData) {
-                val = metric === 'Hops' ? algoData.hops :
+                val = metric === 'Hops' ? algoData.totalHops :
                     metric === 'Latency' ? (algoData.latencyMs ?? algoData.latency) :
                         algoData.bandwidth;
             }
 
             if (val === undefined || val === null) {
-                val = metric === 'Hops' ? (state.currentRouteData.hops || 0) :
+                val = metric === 'Hops' ? (state.currentRouteData.totalHops || 0) :
                     metric === 'Latency' ? (state.currentRouteData.estimatedLatencyMs || 0) : 0;
             }
 
@@ -285,6 +285,20 @@ async function updateWrittenAnalytics() {
             `;
             block.appendChild(item);
         }
+        const islStats = algoData?.islStats ?? state.currentRouteData?.islStats;
+        if (islStats && islStats.avgDistance > 0) {
+            const islItem = document.createElement('div');
+            islItem.className = 'metric-item';
+            islItem.innerHTML = `
+                <span>Avg ISL Distance</span>
+                <span style="color:#7eb8ff; font-family:monospace;"
+                      title="Min: ${islStats.minDistance.toLocaleString()} km  |  Max: ${islStats.maxDistance.toLocaleString()} km">
+                    ${islStats.avgDistance.toLocaleString()} km ⓘ
+                </span>
+            `;
+            block.appendChild(islItem);
+        }
+
         container.appendChild(block);
     }
 
