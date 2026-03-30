@@ -17,7 +17,7 @@ export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
 
   // Edge case
   if (sourceId === destinationId) {
-    return { path: [sourceId], satelliteHops: 0, totalHops: 2, cost: 0 };
+    return { path: [sourceId], hops: 0, cost: 0 };
   }
 
   // Collect all node ids that appear as keys or as targets
@@ -89,9 +89,8 @@ export function dijkstraHopShortestPath(networkState, sourceId, destinationId) {
 
   return {
     path,
-    satelliteHops: path.length - 1,
-    totalHops: path.length + 1,
-    cost: dist.get(destinationId)
+    hops: path.length - 1,
+    cost: dist.get(destinationId) // same as hops in this weighting
   };
 }
 
