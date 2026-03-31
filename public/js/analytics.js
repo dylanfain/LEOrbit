@@ -2,6 +2,8 @@
 Chart.defaults.color = '#cfe4ff';
 Chart.defaults.borderColor = 'rgba(100, 150, 255, 0.2)';
 
+const EARTH_RADIUS_KM = 6371;
+
 const colors = {
     bars: ['rgba(255, 105, 180, 0.8)', 'rgba(255, 159, 64, 0.8)', 'rgba(0, 255, 255, 0.8)'],
     borders: ['rgba(255, 105, 180, 1)', 'rgba(255, 159, 64, 1)', 'rgba(0, 255, 255, 1)'],
@@ -19,15 +21,16 @@ let state = {
     currentRouteData: null,
     algorithmCache: {},
     chartInstance: null,
-    currentChartType: 'bar'
+    currentChartType: 'bar',
+    writtenAnalyticsOpen: false
 };
 
 // DOM Elements
 const elements = {
     algoButtons: document.querySelectorAll('.toggle-button'),
-    summaryCheckbox: document.getElementById('show-summary'),
+    writtenToggle: document.getElementById('written-analytics-toggle'),
+    writtenPanel: document.getElementById('written-analytics-panel'),
     writtenDiv: document.getElementById('written-analytics'),
-    extraMetricCheckboxes: document.querySelectorAll('input[name="extra-metrics"]'),
     metricRadios: document.querySelectorAll('input[name="metric"]'),
     routeDisplay: document.getElementById('active-route-display'),
     chartTypeButtons: document.querySelectorAll('.chart-type-btn'),
@@ -39,6 +42,7 @@ const elements = {
 const formatNumber = (value, metric) => {
     if (value === 0) return '0.00';
     if (metric === 'Hops') return Math.round(value).toString();
+    if (metric === 'Path Efficiency') return value.toFixed(1);
 
     const absValue = Math.abs(value);
     if (absValue >= 100) return value.toFixed(1);
@@ -47,6 +51,143 @@ const formatNumber = (value, metric) => {
 };
 
 const algoNameToKey = (name) => algorithm_mapping[name] || name.toLowerCase().replace(/\s+/g, '-');
+
+function toRadians(value) {
+    return (value * Math.PI) / 180;
+}
+
+function greatCircleDistanceKm(a, b) {
+    if (!a || !b || !Number.isFinite(a.lat) || !Number.isFinite(a.lon) || !Number.isFinite(b.lat) || !Number.isFinite(b.lon)) {
+        return 0;
+    }
+
+    const lat1 = toRadians(Number(a.lat));
+    const lat2 = toRadians(Number(b.lat));
+    const lon1 = toRadians(Number(a.lon));
+    const lon2 = toRadians(Number(b.lon));
+
+    const dLat = lat2 - lat1;
+    const dLon = lon2 - lon1;
+
+    const sinLat = Math.sin(dLat / 2);
+    const sinLon = Math.sin(dLon / 2);
+    const haversine = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+
+    return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(haversine)));
+}
+
+function geodeticToCartesian(lat, lon, altitudeKm = 0) {
+    const r = EARTH_RADIUS_KM + Number(altitudeKm || 0);
+    const phi = toRadians(90 - Number(lat));
+    const theta = toRadians(Number(lon) + 180);
+
+    return {
+        x: -r * Math.sin(phi) * Math.cos(theta),
+        y: r * Math.cos(phi),
+        z: r * Math.sin(phi) * Math.sin(theta)
+    };
+}
+
+function distanceKmBetweenPoints(p1, p2) {
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const dz = p2.z - p1.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+function computeActualSatellitePathDistanceKm(route) {
+    if (!route || !Array.isArray(route.satellitePositions) || route.satellitePositions.length === 0) {
+        return 0;
+    }
+
+    let total = 0;
+
+    const routePoints = [];
+
+    if (route.startLocation && Number.isFinite(Number(route.startLocation.lat)) && Number.isFinite(Number(route.startLocation.lon))) {
+        routePoints.push(geodeticToCartesian(route.startLocation.lat, route.startLocation.lon, 0));
+    }
+
+    for (const sat of route.satellitePositions) {
+        if (!sat || !Number.isFinite(Number(sat.lat)) || !Number.isFinite(Number(sat.lon))) continue;
+        routePoints.push(geodeticToCartesian(sat.lat, sat.lon, sat.altitude ?? 0));
+    }
+
+    if (route.endLocation && Number.isFinite(Number(route.endLocation.lat)) && Number.isFinite(Number(route.endLocation.lon))) {
+        routePoints.push(geodeticToCartesian(route.endLocation.lat, route.endLocation.lon, 0));
+    }
+
+    for (let i = 0; i < routePoints.length - 1; i++) {
+        total += distanceKmBetweenPoints(routePoints[i], routePoints[i + 1]);
+    }
+
+    return Number(total.toFixed(2));
+}
+
+function computePathEfficiencyPercentage(route) {
+    if (!route || !route.startLocation || !route.endLocation) {
+        return 0;
+    }
+
+    const directKm = greatCircleDistanceKm(route.startLocation, route.endLocation);
+    const actualKm = computeActualSatellitePathDistanceKm(route);
+
+    if (directKm <= 0 || actualKm <= 0) {
+        return 0;
+    }
+
+    return Number(((directKm / actualKm) * 100).toFixed(1));
+}
+
+function pathEfficiencyColor(percent) {
+    if (percent >= 70) return '#4caf50';
+    if (percent >= 40) return '#ffeb3b';
+    return '#ff9800';
+}
+
+function getSelectedAlgorithms() {
+    return Array.from(elements.algoButtons)
+        .filter(button => button.classList.contains('active'))
+        .map(button => button.textContent.trim());
+}
+
+function getDisplayedHopCount(routeData, algoData = null) {
+    if (Array.isArray(routeData?.path) && routeData.path.length > 0) {
+        return routeData.path.length + 1;
+    }
+
+    if (typeof algoData?.pathLength === 'number' && algoData.pathLength > 0) {
+        return algoData.pathLength + 1;
+    }
+
+    if (typeof algoData?.hops === 'number') {
+        return algoData.hops;
+    }
+
+    return typeof routeData?.hops === 'number' ? routeData.hops : 0;
+}
+
+function getMetricValue(metric, algoData, routeData) {
+    if (metric === 'Path Efficiency') {
+        return computePathEfficiencyPercentage(routeData);
+    }
+
+    if (metric === 'Hops') {
+        return getDisplayedHopCount(routeData, algoData);
+    }
+
+    if (algoData) {
+        return metric === 'Latency' ? (algoData.latencyMs ?? algoData.latency) : algoData.bandwidth;
+    }
+
+    return metric === 'Latency' ? (routeData.estimatedLatencyMs || 0) : 0;
+}
+
+function syncWrittenAnalyticsVisibility() {
+    elements.writtenToggle.setAttribute('aria-expanded', String(state.writtenAnalyticsOpen));
+    elements.writtenPanel.classList.toggle('open', state.writtenAnalyticsOpen);
+    elements.writtenDiv.style.display = state.writtenAnalyticsOpen ? 'block' : 'none';
+}
 
 // API Functions
 async function fetchLatestRoute() {
@@ -105,9 +246,7 @@ function updateUI() {
 }
 
 async function updateChart() {
-    const selectedAlgos = Array.from(elements.algoButtons)
-        .filter(b => b.classList.contains('active'))
-        .map(b => b.textContent.trim());
+    const selectedAlgos = getSelectedAlgorithms();
     const selectedMetric = document.querySelector('input[name="metric"]:checked')?.value || 'Hops';
 
     if (!state.currentRouteData?.startLocation) {
@@ -120,22 +259,15 @@ async function updateChart() {
     }
 
     elements.chartTitle.textContent = selectedMetric + ' Comparison';
-    const metricUnit = selectedMetric === 'Latency' ? 'ms' : (selectedMetric === 'Bandwidth' ? '%' : '');
+    const metricUnit = selectedMetric === 'Latency' ? 'ms' : (selectedMetric === 'Bandwidth' || selectedMetric === 'Path Efficiency' ? '%' : '');
 
     const metricValues = {};
     for (const algo of selectedAlgos) {
         const algoData = await fetchAlgorithmMetrics(algo);
-        let value;
-
-        if (algoData) {
-            value = selectedMetric === 'Hops' ? algoData.hops :
-                selectedMetric === 'Latency' ? (algoData.latencyMs ?? algoData.latency) :
-                    algoData.bandwidth;
-        }
+        let value = getMetricValue(selectedMetric, algoData, state.currentRouteData);
 
         if (value === undefined || value === null) {
-            value = selectedMetric === 'Hops' ? (state.currentRouteData.hops || 0) :
-                selectedMetric === 'Latency' ? (state.currentRouteData.estimatedLatencyMs || 0) : 0;
+            value = getMetricValue(selectedMetric, null, state.currentRouteData);
         }
 
         metricValues[algo] = value;
@@ -150,6 +282,7 @@ function createChart(metricValues, metricName, unit) {
     const labels = Object.keys(metricValues);
     const data = Object.values(metricValues);
     const isLine = state.currentChartType === 'line';
+    const isPercentageMetric = metricName === 'Bandwidth' || metricName === 'Path Efficiency';
 
     const config = {
         type: state.currentChartType,
@@ -199,6 +332,7 @@ function createChart(metricValues, metricName, unit) {
             scales: {
                 y: {
                     beginAtZero: true,
+                    max: isPercentageMetric ? 100 : undefined,
                     title: {
                         display: true,
                         text: `${metricName} ${unit}`,
@@ -208,7 +342,7 @@ function createChart(metricValues, metricName, unit) {
                     ticks: {
                         color: '#cfe4ff',
                         font: { size: 12 },
-                        stepSize: metricName === 'Hops' ? 1 : undefined,
+                        stepSize: metricName === 'Hops' ? 1 : (isPercentageMetric ? 20 : undefined),
                         callback: (value) => formatNumber(value, metricName)
                     },
                     grid: { color: 'rgba(100, 150, 255, 0.1)' }
@@ -225,30 +359,25 @@ function createChart(metricValues, metricName, unit) {
 }
 
 async function updateWrittenAnalytics() {
-    const selectedAlgos = Array.from(elements.algoButtons)
-        .filter(b => b.classList.contains('active'))
-        .map(b => b.textContent.trim());
+    syncWrittenAnalyticsVisibility();
 
-    if (!elements.summaryCheckbox.checked) {
-        elements.writtenDiv.style.display = 'none';
+    if (!state.writtenAnalyticsOpen) {
         return;
     }
+
+    const selectedAlgos = getSelectedAlgorithms();
 
     if (!state.currentRouteData?.startLocation) {
         elements.writtenDiv.innerHTML = '<div style="color: #aaa;">No route data available</div>';
-        elements.writtenDiv.style.display = 'block';
         return;
     }
 
-    let metricsToShow = [document.querySelector('input[name="metric"]:checked').value];
-
-    if (selectedAlgos.length === 1) {
-        metricsToShow = Array.from(elements.extraMetricCheckboxes)
-            .filter(cb => cb.checked)
-            .map(cb => cb.value);
-        const currentMain = document.querySelector('input[name="metric"]:checked').value;
-        if (!metricsToShow.includes(currentMain)) metricsToShow.unshift(currentMain);
+    if (selectedAlgos.length === 0) {
+        elements.writtenDiv.innerHTML = '<div style="color: #aaa;">Select at least one algorithm to view written analytics</div>';
+        return;
     }
+
+    const metricsToShow = ['Hops', 'Latency', 'Bandwidth', 'Path Efficiency'];
 
     elements.writtenDiv.innerHTML = '<div style="color: #aaa; margin-bottom: 10px;">Loading analytics...</div>';
     const container = document.createElement('div');
@@ -261,25 +390,20 @@ async function updateWrittenAnalytics() {
         const algoData = await fetchAlgorithmMetrics(algo);
 
         for (const metric of metricsToShow) {
-            let val;
-
-            if (algoData) {
-                val = metric === 'Hops' ? algoData.hops :
-                    metric === 'Latency' ? (algoData.latencyMs ?? algoData.latency) :
-                        algoData.bandwidth;
-            }
+            let val = getMetricValue(metric, algoData, state.currentRouteData);
 
             if (val === undefined || val === null) {
-                val = metric === 'Hops' ? (state.currentRouteData.hops || 0) :
-                    metric === 'Latency' ? (state.currentRouteData.estimatedLatencyMs || 0) : 0;
+                val = getMetricValue(metric, null, state.currentRouteData);
             }
 
             const unit = metric === 'Latency' ? 'ms' : (metric === 'Hops' ? '' : '%');
+            const metricColor = metric === 'Path Efficiency' ? pathEfficiencyColor(val) : '#7eb8ff';
+
             const item = document.createElement('div');
             item.className = 'metric-item';
             item.innerHTML = `
                 <span>${metric}</span>
-                <span style="color:#7eb8ff; font-family:monospace;">
+                <span style="color:${metricColor}; font-family:monospace; font-weight:700;">
                     ${formatNumber(val, metric)}${unit}
                 </span>
             `;
@@ -290,7 +414,6 @@ async function updateWrittenAnalytics() {
 
     elements.writtenDiv.innerHTML = '';
     elements.writtenDiv.appendChild(container);
-    elements.writtenDiv.style.display = 'block';
 }
 
 // Event Listeners
@@ -305,8 +428,10 @@ elements.metricRadios.forEach(radio => radio.addEventListener('change', () => {
     updateWrittenAnalytics();
 }));
 
-elements.extraMetricCheckboxes.forEach(cb => cb.addEventListener('change', updateWrittenAnalytics));
-elements.summaryCheckbox.addEventListener('change', updateWrittenAnalytics);
+elements.writtenToggle.addEventListener('click', () => {
+    state.writtenAnalyticsOpen = !state.writtenAnalyticsOpen;
+    updateWrittenAnalytics();
+});
 
 elements.chartTypeButtons.forEach(btn => btn.addEventListener('click', () => {
     elements.chartTypeButtons.forEach(b => b.classList.remove('active'));
@@ -316,5 +441,6 @@ elements.chartTypeButtons.forEach(btn => btn.addEventListener('click', () => {
 }));
 
 // Initialize
+syncWrittenAnalyticsVisibility();
 setInterval(fetchLatestRoute, 3000);
 fetchLatestRoute();
