@@ -82,6 +82,14 @@ const routeStats = {
     latency: document.getElementById('route-latency')
 };
 
+function getDisplayedHopCount(routePayload) {
+    if (Array.isArray(routePayload?.path) && routePayload.path.length > 0) {
+        return routePayload.path.length + 1;
+    }
+
+    return typeof routePayload?.hops === 'number' ? routePayload.hops : null;
+}
+
 function setRouteStats(hopsText = '-', latencyText = '-') {
     if (routeStats.hops) {
         routeStats.hops.textContent = hopsText;
@@ -478,14 +486,15 @@ async function sendRouteToBackend() {
             throw new Error(data.error || 'Route service error');
         }
 
-        const hopsText = typeof data.hops === 'number' ? data.hops.toString() : '-';
+        const displayedHops = getDisplayedHopCount(data);
+        const hopsText = displayedHops !== null ? displayedHops.toString() : '-';
         const latencyText = typeof data.estimatedLatencyMs === 'number'
             ? data.estimatedLatencyMs.toFixed(2)
             : '-';
 
         setRouteStats(hopsText, latencyText);
         console.log('Route computed:', {
-            hops: data.hops,
+            hops: displayedHops,
             latencyMs: data.estimatedLatencyMs,
             path: data.path
         });

@@ -13,6 +13,8 @@ const TLE_PATH = process.env.TLE_PATH ?? path.join(__dirname, 'public', 'data', 
 
 const app = express();
 
+const GROUND_STATION_HOP_COUNT = 2;
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/shared', express.static(path.join(__dirname, 'shared')));
@@ -102,6 +104,7 @@ app.post('/api/route', (req, res) => {
     }
 
     const estimatedLatencyMs = computePathLatency(routeResult.path, constellation.networkGraph);
+    const totalHops = includeGroundStationHops(routeResult.hops);
 
     const satellitePositions = Array.isArray(routeResult.path)
         ? routeResult.path.map((satIdRaw) => {
@@ -125,12 +128,12 @@ app.post('/api/route', (req, res) => {
         endSatellite: formatSatelliteMatch(endMatch),
         path: routeResult.path,
         satellitePositions,
-        hops: routeResult.hops,
+        hops: totalHops,
         estimatedLatencyMs,
         timestamp: now.toISOString()
     };
 
-    logRouteSummary(start, end, routeResult.hops, estimatedLatencyMs);
+    logRouteSummary(start, end, totalHops, estimatedLatencyMs);
     logRouteDetails(currentRoute);
 
     res.json(currentRoute);
@@ -199,6 +202,11 @@ function computePathLatency(pathNodes, graph) {
     }
 
     return Number(total.toFixed(3));
+}
+
+function includeGroundStationHops(satelliteHopCount) {
+    const baseHopCount = Number(satelliteHopCount);
+    return Number.isFinite(baseHopCount) ? baseHopCount + GROUND_STATION_HOP_COUNT : GROUND_STATION_HOP_COUNT;
 }
 
 // ============== Pseudo Bandwidth Info (Until we get it) ==============
