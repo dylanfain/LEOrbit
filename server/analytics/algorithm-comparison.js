@@ -3,10 +3,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { buildConstellation } from './server/satellite-server.js';
 import { dijkstraHopShortestPath } from './server/routing/dijkstra-hop.js';
-import {
-    getAlgorithmAnalytics,
-    getAlgorithmComparison
-} from './server/analytics/algorithm-comparison.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -149,25 +145,6 @@ app.get('/api/route', (_req, res) => {
     }
 
     res.json(currentRoute);
-});
-
-app.get('/api/analytics/algorithm-comparison', (_req, res) => {
-    try {
-        const comparisonData = getAlgorithmComparison(currentRoute, constellation);
-        res.json(comparisonData);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unable to compute comparison';
-
-        if (message === 'Constellation not ready') {
-            return res.status(503).json({ error: message });
-        }
-
-        if (message === 'No route data available' || message === 'Unable to compute comparison') {
-            return res.status(404).json({ error: message });
-        }
-
-        return res.status(500).json({ error: message });
-    }
 });
 
 // ============== Algorithm Dashboard API GET ==============
