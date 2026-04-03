@@ -409,6 +409,19 @@ async function updateWrittenAnalytics() {
             `;
             block.appendChild(item);
         }
+        const islStats = algoData?.islStats ?? state.currentRouteData?.islStats;
+        if (islStats && islStats.avgDistance > 0) {
+            const islItem = document.createElement('div');
+            islItem.className = 'metric-item';
+            islItem.innerHTML = `
+                <span>Avg ISL Distance</span>
+                <span style="color:#7eb8ff; font-family:monospace; font-weight:700;"
+                      title="Min: ${islStats.minDistance.toLocaleString()} km  |  Max: ${islStats.maxDistance.toLocaleString()} km">
+                    ${islStats.avgDistance.toLocaleString()} km ⓘ
+                </span>
+            `;
+            block.appendChild(islItem);
+        }
         container.appendChild(block);
     }
 
