@@ -104,6 +104,7 @@ app.post('/api/route', (req, res) => {
     }
 
     const estimatedLatencyMs = computePathLatency(routeResult.path, constellation.networkGraph);
+    const islStats = computeISLStats(routeResult.path, constellation.networkGraph);
     const totalHops = includeGroundStationHops(routeResult.hops);
 
     const satellitePositions = Array.isArray(routeResult.path)
@@ -130,6 +131,7 @@ app.post('/api/route', (req, res) => {
         satellitePositions,
         hops: totalHops,
         estimatedLatencyMs,
+        islStats,
         timestamp: now.toISOString()
     };
 
@@ -168,6 +170,7 @@ app.get('/api/analytics/:algorithm', (req, res) => {
         latency: currentRoute.estimatedLatencyMs,
         bandwidth: calculateBandwidthUsage(currentRoute.path, constellation.networkGraph),
         pathLength: currentRoute.path.length,
+        islStats: currentRoute.islStats,
         timestamp: currentRoute.timestamp
     };
 
@@ -180,6 +183,32 @@ function isValidLocation(location) {
         Number.isFinite(Number(location.lat)) &&
         Number.isFinite(Number(location.lon))
     );
+}
+function computeISLStats(pathNodes, graph) {
+    if (!Array.isArray(pathNodes) || pathNodes.length < 2) {
+        return { avgDistance: 0, minDistance: 0, maxDistance: 0 };
+    }
+    const distances = [];
+    for (let i = 0; i < pathNodes.length - 1; i++) {
+        const fromId = Number(pathNodes[i]);
+        const toId = Number(pathNodes[i + 1]);
+        const edges = graph instanceof Map
+            ? graph.get(fromId) || []
+            : graph[String(fromId)] || graph[fromId] || [];
+        const edge = edges.find((neighbor) => Number(neighbor.target) === toId);
+        if (edge && Number.isFinite(Number(edge.distance))) {
+            distances.push(Number(edge.distance));
+        }
+    }
+    if (distances.length === 0) {
+        return { avgDistance: 0, minDistance: 0, maxDistance: 0 };
+    }
+    const avg = distances.reduce((a, b) => a + b, 0) / distances.length;
+    return {
+        avgDistance: Number(avg.toFixed(2)),
+        minDistance: Number(Math.min(...distances).toFixed(2)),
+        maxDistance: Number(Math.max(...distances).toFixed(2))
+    };
 }
 
 function computePathLatency(pathNodes, graph) {
