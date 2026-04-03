@@ -152,3 +152,4 @@ docs/generated/
 *.patch
 .history/
 .vscode/
+package-lock.json

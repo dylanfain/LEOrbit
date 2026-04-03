@@ -1,8 +1,8 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { buildConstellation } from './server/satellite-server.js';
-import { dijkstraHopShortestPath } from './server/routing/dijkstra-hop.js';
+import { buildConstellation } from '../satellite-server.js';
+import { dijkstraHopShortestPath } from '../routing/dijkstra-hop.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

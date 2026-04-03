@@ -116,7 +116,10 @@ function getEdgeBandwidth(edge) {
     return Number(edge.bandwidth);
   }
 
-  return -Infinity;
+  // Default bandwidth based on distance (closer = higher bandwidth)
+  // Max distance ~5000km, so bandwidth from 100 to 10 Mbps
+  const distance = edge.distance || 5000;
+  return Math.max(10, 100 - (distance / 50));
 }
 
 function normalizeGraph(graph) {
@@ -133,7 +136,7 @@ function normalizeGraph(graph) {
         target: Number(edge.target),
         distance: Number(edge.distance) || null,
         latency: Number(edge.latency) || null,
-        bandwidth: Number(edge.bandwidth)
+        bandwidth: getEdgeBandwidth(edge)
       }))
     );
   }
