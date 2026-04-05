@@ -3,10 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { buildConstellation } from './server/satellite-server.js';
 import { dijkstraHopShortestPath } from './server/routing/dijkstra-hop.js';
-import {
-    getAlgorithmAnalytics,
-    getAlgorithmComparison
-} from './server/analytics/algorithm-comparison.js';
+import { dijkstraLatencyShortestPath } from './server/routing/dijkstra-latency.js';
+import { widestPathBandwidth } from './server/routing/djikstra-bandwidth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,7 +46,7 @@ app.post('/api/route', (req, res) => {
         return res.status(503).json({ error: 'Constellation not ready' });
     }
 
-    const { start, end } = req.body ?? {};
+    const { start, end, algorithm = 'hop' } = req.body ?? {};
     const validationErrors = [];
 
     if (!isValidLocation(start)) {
@@ -59,6 +57,10 @@ app.post('/api/route', (req, res) => {
         validationErrors.push('end');
     }
 
+    if (!['hop', 'latency', 'bandwidth'].includes(algorithm)) {
+        validationErrors.push('algorithm');
+    }
+
     if (validationErrors.length > 0) {
         return res.status(400).json({
             error: 'Invalid route payload',
@@ -66,7 +68,7 @@ app.post('/api/route', (req, res) => {
         });
     }
 
-    logRouteRequest(start, end);
+    logRouteRequest(start, end, algorithm);
 
     const now = new Date();
 
@@ -91,11 +93,30 @@ app.post('/api/route', (req, res) => {
         return res.status(503).json({ error: 'Unable to locate satellites for the requested positions' });
     }
 
-    const routeResult = dijkstraHopShortestPath(
-        { graph: constellation.networkGraph },
-        startMatch.satellite.id,
-        endMatch.satellite.id
-    );
+    let routeResult;
+    switch (algorithm) {
+        case 'hop':
+            routeResult = dijkstraHopShortestPath(
+                { graph: constellation.networkGraph },
+                startMatch.satellite.id,
+                endMatch.satellite.id
+            );
+            break;
+        case 'latency':
+            routeResult = dijkstraLatencyShortestPath(
+                { graph: constellation.networkGraph },
+                startMatch.satellite.id,
+                endMatch.satellite.id
+            );
+            break;
+        case 'bandwidth':
+            routeResult = widestPathBandwidth(
+                { graph: constellation.networkGraph },
+                startMatch.satellite.id,
+                endMatch.satellite.id
+            );
+            break;
+    }
 
     if (!routeResult) {
         console.warn('[route] No viable path found', {
@@ -107,9 +128,10 @@ app.post('/api/route', (req, res) => {
         return res.status(503).json({ error: 'No viable route between the selected locations' });
     }
 
-    const estimatedLatencyMs = computePathLatency(routeResult.path, constellation.networkGraph);
+    const estimatedLatencyMs = algorithm === 'latency' ? routeResult.totalLatency : computePathLatency(routeResult.path, constellation.networkGraph);
     const islStats = computeISLStats(routeResult.path, constellation.networkGraph);
     const totalHops = includeGroundStationHops(routeResult.hops);
+    const bottleneckBandwidth = algorithm === 'bandwidth' ? routeResult.bottleneckBandwidth : null;
 
     const satellitePositions = Array.isArray(routeResult.path)
         ? routeResult.path.map((satIdRaw) => {
@@ -136,10 +158,12 @@ app.post('/api/route', (req, res) => {
         hops: totalHops,
         estimatedLatencyMs,
         islStats,
+        algorithm,
+        bottleneckBandwidth,
         timestamp: now.toISOString()
     };
 
-    logRouteSummary(start, end, totalHops, estimatedLatencyMs);
+    logRouteSummary(start, end, totalHops, estimatedLatencyMs, algorithm);
     logRouteDetails(currentRoute);
 
     res.json(currentRoute);
@@ -180,6 +204,10 @@ app.get('/api/analytics/:algorithm', (req, res) => {
 
     const { algorithm } = req.params;
 
+    if (!['hop', 'latency', 'bandwidth'].includes(algorithm)) {
+        return res.status(400).json({ error: 'Invalid algorithm' });
+    }
+
     if (!currentRoute.path || currentRoute.path.length === 0) {
         return res.status(404).json({
             error: 'No route data available',
@@ -187,17 +215,93 @@ app.get('/api/analytics/:algorithm', (req, res) => {
         });
     }
 
-    const analyticsData = {
-        algorithm,
-        hops: currentRoute.hops,
-        latency: currentRoute.estimatedLatencyMs,
-        bandwidth: calculateBandwidthUsage(currentRoute.path, constellation.networkGraph),
-        pathLength: currentRoute.path.length,
-        islStats: currentRoute.islStats,
-        timestamp: currentRoute.timestamp
-    };
+    try {
+        // Recompute route with the requested algorithm
+        const startId = currentRoute.startSatellite.id;
+        const endId = currentRoute.endSatellite.id;
 
-    res.json(analyticsData);
+        console.log(`[analytics] ${algorithm} - BEFORE computation`);
+        console.log(`  startId: ${startId}, endId: ${endId}`);
+
+        let routeResult;
+        switch (algorithm) {
+            case 'hop':
+                routeResult = dijkstraHopShortestPath(
+                    { graph: constellation.networkGraph },
+                    startId,
+                    endId
+                );
+                break;
+            case 'latency':
+                routeResult = dijkstraLatencyShortestPath(
+                    { graph: constellation.networkGraph },
+                    startId,
+                    endId
+                );
+                break;
+            case 'bandwidth':
+                routeResult = widestPathBandwidth(
+                    { graph: constellation.networkGraph },
+                    startId,
+                    endId
+                );
+                break;
+        }
+
+        if (!routeResult) {
+            console.log(`[analytics] ${algorithm} - NO ROUTE FOUND`);
+            return res.status(404).json({ error: 'No route found for this algorithm' });
+        }
+
+        console.log(`[analytics] ${algorithm} - path: ${routeResult.path.join('->')}, hops: ${routeResult.hops}`);
+
+        const estimatedLatencyMs = algorithm === 'latency' ? routeResult.totalLatency : computePathLatency(routeResult.path, constellation.networkGraph);
+        const islStats = computeISLStats(routeResult.path, constellation.networkGraph);
+        const totalHops = includeGroundStationHops(routeResult.hops);
+        const bandwidth = algorithm === 'bandwidth' ? routeResult.bottleneckBandwidth : calculateBandwidthUsage(routeResult.path, constellation.networkGraph);
+        const pathEfficiency = computePathEfficiencyPercentage(
+            currentRoute.startLocation,
+            currentRoute.endLocation,
+            routeResult.path,
+            constellation.networkGraph,
+            satelliteById
+        );
+        
+        // Build satellite positions for this algorithm's path
+        const satellitePositions = Array.isArray(routeResult.path)
+            ? routeResult.path.map((satIdRaw) => {
+                const satId = Number(satIdRaw);
+                const sat = satelliteById.get(satId);
+                const geo = sat?.getGeodeticDegrees();
+                return {
+                    id: satId,
+                    name: sat?.name ?? null,
+                    lat: geo?.latitude ?? null,
+                    lon: geo?.longitude ?? null,
+                    altitude: geo?.altitude ?? null
+                };
+            })
+            : [];
+        
+        console.log(`[analytics] ${algorithm} FINAL STATS:`);
+        console.log(`  hops: ${totalHops}, latency: ${estimatedLatencyMs}ms, pathLength: ${routeResult.path.length}, efficiency: ${pathEfficiency}%, bandwidth: ${bandwidth}`);
+        const analyticsData = {
+            algorithm,
+            hops: totalHops,
+            latency: estimatedLatencyMs,
+            bandwidth,
+            pathEfficiency,
+            pathLength: routeResult.path.length,
+            islStats,
+            satellitePositions,
+            timestamp: currentRoute.timestamp
+        };
+
+        res.json(analyticsData);
+    } catch (error) {
+        console.error(`Error in analytics for ${algorithm}:`, error);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 function isValidLocation(location) {
@@ -289,6 +393,85 @@ function calculateBandwidthUsage(pathNodes, graph) {
     return linkCount > 0 ? Number((totalBandwidth / linkCount).toFixed(2)) : 0;
 }
 
+function greatCircleDistanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth radius in km
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+function computePathEfficiencyPercentage(startLocation, endLocation, pathNodes, graph, satelliteById) {
+    if (!startLocation || !endLocation || !Array.isArray(pathNodes) || pathNodes.length < 1) {
+        return 0;
+    }
+
+    // Calculate direct distance between start and end
+    const directKm = greatCircleDistanceKm(
+        startLocation.lat,
+        startLocation.lon,
+        endLocation.lat,
+        endLocation.lon
+    );
+
+    if (directKm <= 0) return 0;
+
+    // Calculate actual path distance through satellites
+    let actualKm = 0;
+
+    // Distance from start location to first satellite
+    if (pathNodes.length > 0) {
+        const firstSatId = Number(pathNodes[0]);
+        const firstSat = satelliteById.get(firstSatId);
+        if (firstSat) {
+            const geo = firstSat.getGeodeticDegrees();
+            actualKm += greatCircleDistanceKm(
+                startLocation.lat,
+                startLocation.lon,
+                geo.latitude,
+                geo.longitude
+            );
+        }
+    }
+
+    // Distance between satellites
+    for (let i = 0; i < pathNodes.length - 1; i++) {
+        const fromId = Number(pathNodes[i]);
+        const toId = Number(pathNodes[i + 1]);
+        const edges = graph instanceof Map
+            ? graph.get(fromId) || []
+            : graph[String(fromId)] || graph[fromId] || [];
+        const edge = edges.find((neighbor) => Number(neighbor.target) === toId);
+
+        if (edge && Number.isFinite(Number(edge.distance))) {
+            actualKm += Number(edge.distance);
+        }
+    }
+
+    // Distance from last satellite to end location
+    if (pathNodes.length > 0) {
+        const lastSatId = Number(pathNodes[pathNodes.length - 1]);
+        const lastSat = satelliteById.get(lastSatId);
+        if (lastSat) {
+            const geo = lastSat.getGeodeticDegrees();
+            actualKm += greatCircleDistanceKm(
+                geo.latitude,
+                geo.longitude,
+                endLocation.lat,
+                endLocation.lon
+            );
+        }
+    }
+
+    if (actualKm <= 0) return 0;
+
+    return Number(((directKm / actualKm) * 100).toFixed(1));
+}
+
 function formatSatelliteMatch(match) {
     if (!match?.satellite) return null;
 
@@ -306,13 +489,13 @@ function formatSatelliteMatch(match) {
     };
 }
 
-function logRouteSummary(start, end, hops, latencyMs) {
+function logRouteSummary(start, end, hops, latencyMs, algorithm) {
     const describe = (point) =>
         point?.displayName ??
         `${Number(point.lat).toFixed(2)}, ${Number(point.lon).toFixed(2)}`;
 
     console.log(
-        `[route] ${describe(start)} -> ${describe(end)} | ${hops} hops | ~${latencyMs.toFixed(2)} ms`
+        `[route] ${describe(start)} -> ${describe(end)} | ${hops} hops | ~${latencyMs.toFixed(2)} ms | ${algorithm}`
     );
 }
 
@@ -340,11 +523,12 @@ function logRouteDetails(routePayload) {
     console.log(line('Hop Count', routePayload.hops));
     console.log(line('Latency (ms)', routePayload.estimatedLatencyMs));
     console.log(line('Path (ids)', routePayload.path?.join(' -> ') || 'n/a'));
-    console.log(line('Notes', 'Using just Dijkstra\'s algorithm right now'));
+    console.log(line('Algorithm', routePayload.algorithm));
+    console.log(line('Notes', 'Using Dijkstra algorithms'));
     console.log('[route:details:end]\n');
 }
 
-function logRouteRequest(start, end) {
+function logRouteRequest(start, end, algorithm) {
     const fmt = (point) =>
         point
             ? `${point.displayName ?? 'Custom'} (${Number(point.lat).toFixed(2)}, ${Number(point.lon).toFixed(2)})`
@@ -353,6 +537,68 @@ function logRouteRequest(start, end) {
     console.log('[route:req] Received request, loading constellation state...');
     console.log(`   start => ${fmt(start)}`);
     console.log(`   end   => ${fmt(end)}`);
+    console.log(`   algorithm => ${algorithm}`);
+}
+
+function getAlgorithmComparison(routeData, constellation) {
+    if (!constellation) {
+        throw new Error('Constellation not ready');
+    }
+
+    if (!routeData || !routeData.startSatellite || !routeData.endSatellite) {
+        throw new Error('No route data available');
+    }
+
+    const startId = routeData.startSatellite.id;
+    const endId = routeData.endSatellite.id;
+    const algorithms = ['hop', 'latency', 'bandwidth'];
+    const results = {};
+
+    for (const algo of algorithms) {
+        let routeResult;
+        switch (algo) {
+            case 'hop':
+                routeResult = dijkstraHopShortestPath(
+                    { graph: constellation.networkGraph },
+                    startId,
+                    endId
+                );
+                break;
+            case 'latency':
+                routeResult = dijkstraLatencyShortestPath(
+                    { graph: constellation.networkGraph },
+                    startId,
+                    endId
+                );
+                break;
+            case 'bandwidth':
+                routeResult = widestPathBandwidth(
+                    { graph: constellation.networkGraph },
+                    startId,
+                    endId
+                );
+                break;
+        }
+
+        if (routeResult) {
+            const estimatedLatencyMs = algo === 'latency' ? routeResult.totalLatency : computePathLatency(routeResult.path, constellation.networkGraph);
+            const totalHops = includeGroundStationHops(routeResult.hops);
+            const bandwidth = algo === 'bandwidth' ? routeResult.bottleneckBandwidth : calculateBandwidthUsage(routeResult.path, constellation.networkGraph);
+
+            results[algo] = {
+                hops: totalHops,
+                latency: estimatedLatencyMs,
+                bandwidth,
+                pathLength: routeResult.path.length
+            };
+        }
+    }
+
+    if (Object.keys(results).length === 0) {
+        throw new Error('Unable to compute comparison');
+    }
+
+    return results;
 }
 
 async function start() {

@@ -82,6 +82,8 @@ const routeStats = {
     latency: document.getElementById('route-latency')
 };
 
+let selectedAlgorithm = 'hop';
+
 function getDisplayedHopCount(routePayload) {
     if (Array.isArray(routePayload?.path) && routePayload.path.length > 0) {
         return routePayload.path.length + 1;
@@ -477,7 +479,8 @@ async function sendRouteToBackend() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 start: startLocation,
-                end: endLocation
+                end: endLocation,
+                algorithm: selectedAlgorithm
             })
         });
         const data = await response.json();
@@ -656,6 +659,19 @@ sizeSlider.addEventListener('input', (e) => {
         }
 
         mesh.scale.setScalar(satelliteScale);
+    });
+});
+
+// Algorithm selection
+const algorithmButtons = document.querySelectorAll('.algorithm-btn');
+algorithmButtons.forEach(button => {
+    button.addEventListener('click', (e) => {
+        // Remove active class from all buttons
+        algorithmButtons.forEach(btn => btn.classList.remove('active'));
+        // Add active class to clicked button
+        e.target.classList.add('active');
+        // Update selected algorithm
+        selectedAlgorithm = e.target.dataset.algorithm;
     });
 });
 

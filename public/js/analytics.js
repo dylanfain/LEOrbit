@@ -11,9 +11,9 @@ const colors = {
 };
 
 const algorithm_mapping = {
-    'Shortest Path': 'shortest-path',
-    'Minimum Latency': 'minimum-latency',
-    'Load Balanced': 'load-balanced'
+    'Hop Count': 'hop',
+    'Latency': 'latency',
+    'Bandwidth': 'bandwidth'
 };
 
 // State
@@ -152,16 +152,19 @@ function getSelectedAlgorithms() {
 }
 
 function getDisplayedHopCount(routeData, algoData = null) {
+    // Prioritize algorithm-specific data when available
+    if (algoData) {
+        if (typeof algoData?.hops === 'number') {
+            return algoData.hops;
+        }
+        if (typeof algoData?.pathLength === 'number' && algoData.pathLength > 0) {
+            return algoData.pathLength + 1;
+        }
+    }
+
+    // Fall back to route data if no algorithm data
     if (Array.isArray(routeData?.path) && routeData.path.length > 0) {
         return routeData.path.length + 1;
-    }
-
-    if (typeof algoData?.pathLength === 'number' && algoData.pathLength > 0) {
-        return algoData.pathLength + 1;
-    }
-
-    if (typeof algoData?.hops === 'number') {
-        return algoData.hops;
     }
 
     return typeof routeData?.hops === 'number' ? routeData.hops : 0;
@@ -169,17 +172,33 @@ function getDisplayedHopCount(routeData, algoData = null) {
 
 function getMetricValue(metric, algoData, routeData) {
     if (metric === 'Path Efficiency') {
+        // Use algorithm-specific path efficiency from server
+        if (algoData && typeof algoData.pathEfficiency === 'number') {
+            console.log(`[getMetricValue] Path Efficiency from algoData: ${algoData.pathEfficiency}%`);
+            return algoData.pathEfficiency;
+        }
+        // Fall back to original route data
         return computePathEfficiencyPercentage(routeData);
     }
 
     if (metric === 'Hops') {
-        return getDisplayedHopCount(routeData, algoData);
+        const value = getDisplayedHopCount(routeData, algoData);
+        console.log(`[getMetricValue] Hops for algo: ${value}, algoData present: ${!!algoData}`);
+        return value;
     }
 
     if (algoData) {
-        return metric === 'Latency' ? (algoData.latencyMs ?? algoData.latency) : algoData.bandwidth;
+        if (metric === 'Latency') {
+            const latency = algoData.latencyMs ?? algoData.latency;
+            console.log(`[getMetricValue] Latency from algoData: ${latency}`);
+            return latency;
+        } else if (metric === 'Bandwidth') {
+            console.log(`[getMetricValue] Bandwidth from algoData: ${algoData.bandwidth}`);
+            return algoData.bandwidth;
+        }
     }
 
+    // Fallback to routeData if no algoData
     return metric === 'Latency' ? (routeData.estimatedLatencyMs || 0) : 0;
 }
 
@@ -209,17 +228,23 @@ async function fetchLatestRoute() {
 
 async function fetchAlgorithmMetrics(algorithm) {
     const algoKey = algoNameToKey(algorithm);
-    if (state.algorithmCache[algoKey]) return state.algorithmCache[algoKey];
+    console.log(`[fetchAlgorithmMetrics] algorithm: "${algorithm}", key: "${algoKey}"`);
+    if (state.algorithmCache[algoKey]) {
+        console.log(`[fetchAlgorithmMetrics] RETURNING CACHED for ${algoKey}:`, state.algorithmCache[algoKey]);
+        return state.algorithmCache[algoKey];
+    }
 
     try {
+        console.log(`[fetchAlgorithmMetrics] FETCHING fresh data for ${algoKey}`);
         const response = await fetch(`/api/analytics/${algoKey}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
+        console.log(`[fetchAlgorithmMetrics] Fetched ${algorithm} (${algoKey}):`, data);
         state.algorithmCache[algoKey] = data;
         return data;
     } catch (err) {
-        console.error(`Failed to fetch ${algorithm} metrics:`, err);
+        console.error(`[fetchAlgorithmMetrics] Failed to fetch ${algorithm} (${algoKey}):`, err);
         return null;
     }
 }
@@ -264,12 +289,18 @@ async function updateChart() {
     const metricValues = {};
     for (const algo of selectedAlgos) {
         const algoData = await fetchAlgorithmMetrics(algo);
+        console.log(`[updateChart] Processing algo: "${algo}", has data: ${!!algoData}`);
+        if (algoData) {
+            console.log(`[updateChart]   algoData details:`, algoData);
+        }
         let value = getMetricValue(selectedMetric, algoData, state.currentRouteData);
 
         if (value === undefined || value === null) {
+            console.log(`[updateChart] Value was null/undefined for ${algo}, falling back`);
             value = getMetricValue(selectedMetric, null, state.currentRouteData);
         }
-
+        
+        console.log(`[updateChart] Final value for ${algo}: ${value}`);
         metricValues[algo] = value;
     }
 
