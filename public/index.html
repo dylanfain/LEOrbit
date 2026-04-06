@@ -1,618 +1,681 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Satellite Visualizer</title>
-    <style>
-      body {
-        margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        overflow: hidden;
-      }
-      
-      #ui-panel {
-        position: fixed;
-        top: 20px;
-        left: 20px;
-        background: rgba(10, 10, 20, 0.85);
-        border: 1px solid rgba(100, 150, 255, 0.3);
-        border-radius: 12px;
-        padding: 20px;
-        color: #fff;
-        min-width: 280px;
-        max-width: 320px;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-        max-height: calc(100vh - 40px);
-        overflow-y: auto;
-      }
-      
-      #ui-panel h2 {
-        margin: 0 0 15px 0;
-        font-size: 18px;
-        font-weight: 600;
-        color: #7eb8ff;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      
-      
-      
-      .section-divider {
-        height: 1px;
-        background: rgba(255, 255, 255, 0.1);
-        margin: 18px 0;
-      }
-      
-      .section-title {
-        font-size: 11px;
-        color: #7eb8ff;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 12px;
-        font-weight: 600;
-      }
-      
-      .stat-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 8px 0;
-      }
-      
-      .stat-label {
-        color: #aaa;
-        font-size: 13px;
-      }
-      
-      .stat-value {
-        font-size: 20px;
-        font-weight: 700;
-        color: #fff;
-      }
-      
-      .control-group {
-        margin-top: 15px;
-      }
-      
-      .control-group label {
-        display: block;
-        font-size: 12px;
-        color: #aaa;
-        margin-bottom: 6px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-      
-      .algorithm-buttons {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-      
-      .algorithm-btn {
-        padding: 8px 12px;
-        border: 1px solid rgba(100, 150, 255, 0.3);
-        border-radius: 6px;
-        background: rgba(10, 10, 20, 0.5);
-        color: #cfe4ff;
-        font-size: 12px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-      
-      .algorithm-btn:hover {
-        background: rgba(100, 150, 255, 0.2);
-        border-color: rgba(100, 150, 255, 0.5);
-      }
-      
-      .algorithm-btn.active {
-        background: rgba(80, 140, 255, 0.8);
-        border-color: rgba(100, 150, 255, 0.8);
-        color: #fff;
-      }
-      
-      .color-picker-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-      
-      input[type="color"] {
-        border: none;
-        width: 40px;
-        height: 30px;
-        border-radius: 6px;
-        cursor: pointer;
-        background: transparent;
-      }
-      
-      input[type="color"]::-webkit-color-swatch-wrapper {
-        padding: 0;
-      }
-      
-      input[type="color"]::-webkit-color-swatch {
-        border: 2px solid rgba(255, 255, 255, 0.2);
-        border-radius: 6px;
-      }
-      
-      .toggle-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 0;
-      }
-      
-      .toggle-label {
-        font-size: 14px;
-      }
-      
-      .toggle-switch {
-        position: relative;
-        width: 46px;
-        height: 24px;
-      }
-      
-      .toggle-switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-      }
-      
-      .toggle-slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: rgba(255, 255, 255, 0.1);
-        transition: 0.3s;
-        border-radius: 24px;
-      }
-      
-      .toggle-slider:before {
-        position: absolute;
-        content: "";
-        height: 18px;
-        width: 18px;
-        left: 3px;
-        bottom: 3px;
-        background-color: #fff;
-        transition: 0.3s;
-        border-radius: 50%;
-      }
-      
-      .toggle-switch input:checked + .toggle-slider {
-        background-color: #4a9eff;
-      }
-      
-      .toggle-switch input:checked + .toggle-slider:before {
-        transform: translateX(22px);
-      }
-      
-      .slider-row {
-        margin-top: 8px;
-      }
-      
-      .slider-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 8px;
-      }
-      
-      .slider-value {
-        font-size: 13px;
-        color: #7eb8ff;
-        font-weight: 600;
-      }
-      
-      input[type="range"] {
-        width: 100%;
-        height: 6px;
-        border-radius: 3px;
-        background: rgba(255, 255, 255, 0.1);
-        outline: none;
-      }
-      
-      input[type="range"]::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        background: #4a9eff;
-        cursor: pointer;
-        transition: background 0.2s;
-      }
-      
-      input[type="range"]::-webkit-slider-thumb:hover {
-        background: #7eb8ff;
-      }
-      
-      input[type="range"]::-moz-range-thumb {
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        background: #4a9eff;
-        cursor: pointer;
-        border: none;
-      }
-      
-      #altitude-legend {
-        margin-top: 12px;
-        padding: 12px;
-        background: rgba(0, 0, 0, 0.3);
-        border-radius: 8px;
-        display: none;
-      }
-      
-      #altitude-legend.visible {
-        display: block;
-      }
-      
-      .legend-title {
-        font-size: 11px;
-        color: #888;
-        margin-bottom: 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-      
-      .gradient-bar {
-        height: 12px;
-        border-radius: 6px;
-        background: linear-gradient(to right, #00ff88, #ffff00, #ff6600, #ff0066);
-        margin-bottom: 6px;
-      }
-      
-      .legend-labels {
-        display: flex;
-        justify-content: space-between;
-        font-size: 10px;
-        color: #aaa;
-      }
-      
-      /* Location Search Styles */
-      .location-input-wrapper {
-        position: relative;
-        margin-bottom: 12px;
-      }
-      
-      .location-input-wrapper label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-      
-      .location-input-wrapper label .marker-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        display: inline-block;
-      }
-      
-      .location-input-wrapper label .marker-dot.start {
-        background: #00ff88;
-      }
-      
-      .location-input-wrapper label .marker-dot.end {
-        background: #ff4466;
-      }
-      
-      .location-input {
-        width: 100%;
-        padding: 10px 12px;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 8px;
-        color: #fff;
-        font-size: 14px;
-        outline: none;
-        transition: border-color 0.2s, background 0.2s;
-        box-sizing: border-box;
-      }
-      
-      .location-input::placeholder {
-        color: rgba(255, 255, 255, 0.4);
-      }
-      
-      .location-input:focus {
-        border-color: rgba(100, 150, 255, 0.5);
-        background: rgba(255, 255, 255, 0.12);
-      }
-      
-      .location-dropdown {
-        position: absolute;
-        top: 100%;
-        left: 0;
-        right: 0;
-        background: rgba(15, 15, 30, 0.95);
-        border: 1px solid rgba(100, 150, 255, 0.3);
-        border-radius: 8px;
-        margin-top: 4px;
-        max-height: 200px;
-        overflow-y: auto;
-        z-index: 100;
-        display: none;
-        backdrop-filter: blur(10px);
-      }
-      
-      .location-dropdown.visible {
-        display: block;
-      }
-      
-      .dropdown-item {
-        padding: 10px 12px;
-        font-size: 13px;
-        color: #ccc;
-        cursor: pointer;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        transition: background 0.15s;
-      }
-      
-      .dropdown-item:last-child {
-        border-bottom: none;
-      }
-      
-      .dropdown-item:hover {
-        background: rgba(100, 150, 255, 0.15);
-        color: #fff;
-      }
-      
-      .dropdown-item.loading,
-      .dropdown-item.no-results,
-      .dropdown-item.error {
-        color: #888;
-        cursor: default;
-        font-style: italic;
-      }
-      
-      .dropdown-item.loading:hover,
-      .dropdown-item.no-results:hover,
-      .dropdown-item.error:hover {
-        background: transparent;
-        color: #888;
-      }
-      
-      .dropdown-item.error {
-        color: #ff6666;
-      }
-      
-      #loading {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        color: #fff;
-        font-size: 16px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 15px;
-      }
-      
-      .spinner {
-        width: 40px;
-        height: 40px;
-        border: 3px solid rgba(255, 255, 255, 0.1);
-        border-top-color: #4a9eff;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-      }
-      
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
-      
-      #loading.hidden {
-        display: none;
-      }
-      
-      /* Scrollbar styling for the panel */
-      #ui-panel::-webkit-scrollbar {
-        width: 6px;
-      }
-      
-      #ui-panel::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 3px;
-      }
-      
-      #ui-panel::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 3px;
-      }
-      
-      #ui-panel::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.3);
-      }
-      
-      /* Navigation Tabs */
-      #top-tabs {
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        display: flex;
-        gap: 12px;
-        z-index: 30;
-      }
-      .tab {
-        padding: 8px 18px;
-        border-radius: 20px;
-        background: rgba(30,60,120,0.6);
-        color: #cfe4ff;
-        text-decoration: none;
-        font-size: 14px;
-        font-weight: 500;
-        transition: all 0.2s ease;
-      }
-      .tab:hover {
-        background: rgba(80,140,255,0.8);
-        color: #fff;
-      }
-      .tab.active {
-        background: rgba(80,140,255,1);
-        color: #fff;
-      }
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Satellite Visualizer</title>
+  <style>
+    :root {
+      --accent: #7eb8ff;
+      --accent-strong: #4a9eff;
 
-      .primary-button {
-        width: 100%;
-        margin-top: 10px;
-        padding: 12px;
-        border: none;
-        border-radius: 10px;
-        background: linear-gradient(135deg, #4a9eff, #7d6bff);
-        color: #fff;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: opacity 0.2s, transform 0.1s;
-      }
+      --text: #ffffff;
+      --text-muted: rgba(207, 228, 255, 0.75);
+      --text-dim: rgba(255, 255, 255, 0.65);
 
-      .primary-button:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-      }
+      --panel-bg: rgba(10, 10, 20, 0.85);
+      --surface-bg: rgba(10, 10, 20, 0.5);
+      --surface-bg-hover: rgba(100, 150, 255, 0.15);
 
-      .primary-button:not(:disabled):active {
-        transform: scale(0.99);
-      }
+      --border: 1px solid rgba(100, 150, 255, 0.3);
+      --border-soft: 1px solid rgba(100, 150, 255, 0.18);
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 
-      .run-hint {
-        font-size: 11px;
-        color: #9abfff;
-        margin-top: 6px;
-        opacity: 0.75;
+      --r-sm: 8px;
+      --r-md: 12px;
+      --r-lg: 20px;
+
+      --pad: 16px;
+      --gap: 10px;
+
+      --fs-11: 11px;
+      --fs-12: 12px;
+      --fs-13: 13px;
+      --fs-14: 14px;
+      --fs-18: 18px;
+
+      --lh-tight: 1.15;
+      --lh: 1.28;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+      color: var(--text);
+    }
+
+    #top-tabs {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 12px;
+      z-index: 30;
+    }
+    .tab {
+      padding: 8px 18px;
+      border-radius: 20px;
+      background: rgba(30, 60, 120, 0.6);
+      color: #cfe4ff;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      line-height: var(--lh-tight);
+    }
+    .tab:hover {
+      background: rgba(80, 140, 255, 0.8);
+      color: #fff;
+    }
+    .tab.active {
+      background: rgba(80, 140, 255, 1);
+      color: #fff;
+    }
+
+    #ui-panel {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      background: var(--panel-bg);
+      border: var(--border);
+      border-radius: var(--r-md);
+      padding: var(--pad);
+      color: var(--text);
+      min-width: 280px;
+      max-width: 320px;
+      backdrop-filter: blur(10px);
+      box-shadow: var(--shadow);
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      font-size: var(--fs-13);
+      line-height: var(--lh);
+    }
+
+    #ui-panel h2 {
+      margin: 0 0 10px 0;
+      font-size: 22px;
+      font-weight: 650;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      line-height: var(--lh-tight);
+    }
+
+    .section-divider {
+      height: 1px;
+      background: rgba(255, 255, 255, 0.1);
+      margin: 12px 0;
+    }
+
+    .section-title {
+      font-size: var(--fs-11);
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+      font-weight: 650;
+      line-height: var(--lh-tight);
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+    }
+
+    .stat-label {
+      color: var(--text-dim);
+      font-size: var(--fs-12);
+      line-height: var(--lh-tight);
+    }
+
+    .stat-value {
+      font-size: 18px;
+      font-weight: 750;
+      color: var(--text);
+      line-height: var(--lh-tight);
+    }
+
+    .control-group {
+      margin-top: 10px;
+    }
+
+    .control-group label {
+      display: block;
+      font-size: var(--fs-11);
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 650;
+      line-height: var(--lh-tight);
+    }
+
+    .algorithm-buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .algorithm-btn {
+      padding: 7px 10px;
+      border: var(--border-soft);
+      border-radius: 6px;
+      background: var(--surface-bg);
+      color: #cfe4ff;
+      font-size: var(--fs-12);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      line-height: var(--lh-tight);
+    }
+
+    .algorithm-btn:hover {
+      background: var(--surface-bg-hover);
+      border-color: rgba(100, 150, 255, 0.5);
+    }
+
+    .algorithm-btn.active {
+      background: rgba(80, 140, 255, 0.8);
+      border-color: rgba(100, 150, 255, 0.8);
+      color: #fff;
+    }
+
+    .color-picker-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-muted);
+      font-size: var(--fs-12);
+      font-weight: 650;
+      line-height: var(--lh-tight);
+    }
+
+    input[type="color"] {
+      border: none;
+      width: 40px;
+      height: 28px;
+      border-radius: 6px;
+      cursor: pointer;
+      background: transparent;
+    }
+
+    input[type="color"]::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+
+    input[type="color"]::-webkit-color-swatch {
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+    }
+
+    .toggle-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+    }
+
+    .toggle-label {
+      font-size: var(--fs-13);
+      color: var(--text-muted);
+      font-weight: 650;
+      line-height: var(--lh-tight);
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 46px;
+      height: 24px;
+      flex: 0 0 auto;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255, 255, 255, 0.1);
+      transition: 0.3s;
+      border-radius: 24px;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: #fff;
+      transition: 0.3s;
+      border-radius: 50%;
+    }
+
+    .toggle-switch input:checked + .toggle-slider {
+      background-color: var(--accent-strong);
+    }
+
+    .toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(22px);
+    }
+
+    .slider-row {
+      margin-top: 6px;
+    }
+
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .slider-value {
+      font-size: var(--fs-12);
+      color: var(--accent);
+      font-weight: 650;
+      line-height: var(--lh-tight);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.1);
+      outline: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent-strong);
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    input[type="range"]::-webkit-slider-thumb:hover {
+      background: var(--accent);
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent-strong);
+      cursor: pointer;
+      border: none;
+    }
+
+    #altitude-legend {
+      margin-top: 10px;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: var(--r-sm);
+      display: none;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    #altitude-legend.visible {
+      display: block;
+    }
+
+    .legend-title {
+      font-size: var(--fs-11);
+      color: #888;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 650;
+      line-height: var(--lh-tight);
+    }
+
+    .gradient-bar {
+      height: 12px;
+      border-radius: 6px;
+      background: linear-gradient(to right, #00ff88, #ffff00, #ff6600, #ff0066);
+      margin-bottom: 6px;
+    }
+
+    .legend-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #aaa;
+      font-weight: 650;
+      line-height: var(--lh-tight);
+    }
+
+    .location-input-wrapper {
+      position: relative;
+      margin-bottom: 10px;
+    }
+
+    .location-input-wrapper label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-dim);
+      font-weight: 650;
+      font-size: var(--fs-12);
+      line-height: var(--lh-tight);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .location-input-wrapper label .marker-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .location-input-wrapper label .marker-dot.start {
+      background: #00ff88;
+    }
+
+    .location-input-wrapper label .marker-dot.end {
+      background: #ff4466;
+    }
+
+    .location-input {
+      width: 100%;
+      padding: 9px 10px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: var(--r-sm);
+      color: #fff;
+      font-size: var(--fs-13);
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+      box-sizing: border-box;
+      line-height: var(--lh);
+    }
+
+    .location-input::placeholder {
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    .location-input:focus {
+      border-color: rgba(100, 150, 255, 0.5);
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .location-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: rgba(15, 15, 30, 0.95);
+      border: var(--border);
+      border-radius: var(--r-sm);
+      margin-top: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 100;
+      display: none;
+      backdrop-filter: blur(10px);
+      box-shadow: var(--shadow);
+    }
+
+    .location-dropdown.visible {
+      display: block;
+    }
+
+    .dropdown-item {
+      padding: 9px 10px;
+      font-size: var(--fs-13);
+      color: #ccc;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      transition: background 0.15s;
+      line-height: var(--lh);
+    }
+
+    .dropdown-item:last-child {
+      border-bottom: none;
+    }
+
+    .dropdown-item:hover {
+      background: rgba(100, 150, 255, 0.15);
+      color: #fff;
+    }
+
+    .dropdown-item.loading,
+    .dropdown-item.no-results,
+    .dropdown-item.error {
+      color: #888;
+      cursor: default;
+      font-style: italic;
+    }
+
+    .dropdown-item.loading:hover,
+    .dropdown-item.no-results:hover,
+    .dropdown-item.error:hover {
+      background: transparent;
+      color: #888;
+    }
+
+    .dropdown-item.error {
+      color: #ff6666;
+    }
+
+    #loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff;
+      font-size: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: var(--accent-strong);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #loading.hidden {
+      display: none;
+    }
+
+    #ui-panel::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #ui-panel::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+    }
+
+    #ui-panel::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+    }
+
+    #ui-panel::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .primary-button {
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px;
+      border: none;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent-strong), #7d6bff);
+      color: #fff;
+      font-size: var(--fs-13);
+      font-weight: 650;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      line-height: var(--lh-tight);
+    }
+
+    .primary-button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .primary-button:not(:disabled):active {
+      transform: scale(0.99);
+    }
+
+    .run-hint {
+      font-size: 11px;
+      color: #9abfff;
+      margin-top: 6px;
+      opacity: 0.75;
+      line-height: var(--lh);
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+        "jsm/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
       }
-    </style>
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
-          "jsm/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
-        }
-      }
-    </script>
-  </head>
-  <body>
-    <div id="top-tabs">
-      <a href="index.html" class="tab active">3D Visualization</a>
-      <a href="analytics.html" class="tab">Analytics</a>
+    }
+  </script>
+</head>
+<body>
+<div id="top-tabs">
+  <a href="index.html" class="tab active">Satellite Visualizer</a>
+  <a href="analytics.html" class="tab">Analytics</a>
+</div>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <span>Loading satellites...</span>
+</div>
+
+<div id="ui-panel">
+  <h2>Satellite Visualizer</h2>
+
+  <div class="stat-row">
+    <span class="stat-label">Total Satellites</span>
+    <span class="stat-value" id="sat-count">0</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">Route Hops</span>
+    <span class="stat-value" id="route-hops">-</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">Latency (ms)</span>
+    <span class="stat-value" id="route-latency">-</span>
+  </div>
+
+  <div class="section-divider"></div>
+  <div class="section-title">Route Selection</div>
+
+  <div class="location-input-wrapper">
+    <label>
+      <span class="marker-dot start"></span>
+      Start Location
+    </label>
+    <input type="text" id="start-location" class="location-input" placeholder="Search for a city...">
+    <div id="start-dropdown" class="location-dropdown"></div>
+  </div>
+
+  <div class="location-input-wrapper">
+    <label>
+      <span class="marker-dot end"></span>
+      End Location
+    </label>
+    <input type="text" id="end-location" class="location-input" placeholder="Search for a city...">
+    <div id="end-dropdown" class="location-dropdown"></div>
+  </div>
+
+  <button id="run-route" class="primary-button" disabled>Run Route</button>
+
+  <div class="control-group">
+    <label>Routing Algorithm</label>
+    <div class="algorithm-buttons">
+      <button class="algorithm-btn active" data-algorithm="hop">Hop Count</button>
+      <button class="algorithm-btn" data-algorithm="latency">Latency</button>
+      <button class="algorithm-btn" data-algorithm="bandwidth">Bandwidth</button>
     </div>
-    
-    <div id="loading">
-      <div class="spinner"></div>
-      <span>Loading satellites...</span>
-    </div>
-    
-    <div id="ui-panel">
-      <h2>Satellite Visualizer</h2>
-      
-      <div class="stat-row">
-        <span class="stat-label">Total Satellites</span>
-        <span class="stat-value" id="sat-count">0</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">Route Hops</span>
-        <span class="stat-value" id="route-hops">-</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">Latency (ms)</span>
-        <span class="stat-value" id="route-latency">-</span>
-      </div>
-      
-      <!-- Location Search Section -->
-      <div class="section-divider"></div>
-      <div class="section-title">Route Selection</div>
-      
-      <div class="location-input-wrapper">
-        <label>
-          <span class="marker-dot start"></span>
-          Start Location
-        </label>
-        <input type="text" id="start-location" class="location-input" placeholder="Search for a city...">
-        <div id="start-dropdown" class="location-dropdown"></div>
-      </div>
-      
-      <div class="location-input-wrapper">
-        <label>
-          <span class="marker-dot end"></span>
-          End Location
-        </label>
-        <input type="text" id="end-location" class="location-input" placeholder="Search for a city...">
-        <div id="end-dropdown" class="location-dropdown"></div>
-      </div>
+  </div>
 
-      <button id="run-route" class="primary-button" disabled>Run Route</button>
-      
-      <div class="control-group">
-        <label>Routing Algorithm</label>
-        <div class="algorithm-buttons">
-          <button class="algorithm-btn active" data-algorithm="hop">Hop Count</button>
-          <button class="algorithm-btn" data-algorithm="latency">Latency</button>
-          <button class="algorithm-btn" data-algorithm="bandwidth">Bandwidth</button>
-        </div>
+  <div class="run-hint">Select both locations, then click Run to compute the path.</div>
+
+  <div class="section-divider"></div>
+  <div class="section-title">Display Settings</div>
+
+  <div class="control-group">
+    <label>Satellite Color</label>
+    <div class="color-picker-row">
+      <input type="color" id="sat-color" value="#ffffff">
+      <span id="color-hex">#ffffff</span>
+    </div>
+  </div>
+
+  <div class="control-group">
+    <label>Satellite Size</label>
+    <div class="slider-row">
+      <div class="slider-header">
+        <span></span>
+        <span class="slider-value" id="size-value">0.5x</span>
       </div>
-      
-      <div class="run-hint">Select both locations, then click Run to compute the path.</div>
-      
-      <!-- Satellite Controls Section -->
-      <div class="section-divider"></div>
-      <div class="section-title">Display Settings</div>
-      
-      <div class="control-group">
-        <label>Satellite Color</label>
-        <div class="color-picker-row">
-          <input type="color" id="sat-color" value="#ffffff">
-          <span id="color-hex">#ffffff</span>
-        </div>
-      </div>
-      
-      <div class="control-group">
-        <label>Satellite Size</label>
-        <div class="slider-row">
-          <div class="slider-header">
-            <span></span>
-            <span class="slider-value" id="size-value">0.5x</span>
-          </div>
-          <input type="range" id="sat-size" min="0.1" max="1" step="0.05" value="0.5">
-        </div>
-      </div>
-      
-      <div class="control-group">
-        <div class="toggle-row">
-          <span class="toggle-label">Altitude Mode</span>
-          <label class="toggle-switch">
-            <input type="checkbox" id="altitude-toggle">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        
-        <div id="altitude-legend">
-          <div class="legend-title">Altitude Range</div>
-          <div class="gradient-bar"></div>
-          <div class="legend-labels">
-            <span id="alt-min">200 km</span>
-            <span id="alt-max">600 km</span>
-          </div>
-        </div>
-      </div>
-      
-      <div class="control-group">
-        <div class="toggle-row">
-          <span class="toggle-label">Show Stars</span>
-          <label class="toggle-switch">
-            <input type="checkbox" id="stars-toggle" checked>
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
+      <input type="range" id="sat-size" min="0.1" max="1" step="0.05" value="0.5">
+    </div>
+  </div>
+
+  <div class="control-group">
+    <div class="toggle-row">
+      <span class="toggle-label">Altitude Mode</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="altitude-toggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div id="altitude-legend">
+      <div class="legend-title">Altitude Range</div>
+      <div class="gradient-bar"></div>
+      <div class="legend-labels">
+        <span id="alt-min">200 km</span>
+        <span id="alt-max">600 km</span>
       </div>
     </div>
-    
-    <script type="module" src="js/index.js"></script>
-  </body>
+  </div>
+
+  <div class="control-group">
+    <div class="toggle-row">
+      <span class="toggle-label">Show Stars</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="stars-toggle" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/index.js"></script>
+</body>
 </html>
