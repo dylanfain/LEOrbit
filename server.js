@@ -26,6 +26,7 @@ app.get('/analytics', (_req, res) => {
 });
 
 let constellation = null;
+let constellationInitPromise = null;
 
 let satelliteById = new Map();
 
@@ -40,6 +41,16 @@ let currentRoute = {
     estimatedLatencyMs: 0,
     timestamp: null
 };
+
+app.use('/api', async (_req, res, next) => {
+    try {
+        await initializeConstellation();
+        next();
+    } catch (error) {
+        console.error('Failed to initialize constellation:', error);
+        res.status(500).json({ error: 'Failed to initialize constellation' });
+    }
+});
 
 app.post('/api/route', (req, res) => {
     if (!constellation) {
@@ -179,6 +190,15 @@ app.get('/api/route', (_req, res) => {
 
 app.get('/api/analytics/algorithm-comparison', (_req, res) => {
     try {
+        // Return empty comparison if no route data available yet
+        if (!currentRoute.path || currentRoute.path.length === 0) {
+            return res.status(200).json({
+                algorithms: [],
+                noRouteData: true,
+                message: 'Please calculate a route first'
+            });
+        }
+
         const comparisonData = getAlgorithmComparison(currentRoute, constellation);
         res.json(comparisonData);
     } catch (error) {
@@ -189,7 +209,11 @@ app.get('/api/analytics/algorithm-comparison', (_req, res) => {
         }
 
         if (message === 'No route data available' || message === 'Unable to compute comparison') {
-            return res.status(404).json({ error: message });
+            return res.status(200).json({ 
+                algorithms: [],
+                noRouteData: true,
+                message: 'No route data available' 
+            });
         }
 
         return res.status(500).json({ error: message });
@@ -208,9 +232,19 @@ app.get('/api/analytics/:algorithm', (req, res) => {
         return res.status(400).json({ error: 'Invalid algorithm' });
     }
 
+    // Return default metrics if no route data is available yet
     if (!currentRoute.path || currentRoute.path.length === 0) {
-        return res.status(404).json({
-            error: 'No route data available',
+        return res.status(200).json({
+            algorithm,
+            hops: 0,
+            latency: 0,
+            bandwidth: 0,
+            pathEfficiency: 0,
+            pathLength: 0,
+            islStats: { avgDistance: 0, minDistance: 0, maxDistance: 0 },
+            satellitePositions: [],
+            timestamp: null,
+            noRouteData: true,
             message: 'Please calculate a route first in the 3D Visualization tab'
         });
     }
@@ -633,24 +667,33 @@ function getAlgorithmComparison(routeData, constellation) {
     return results;
 }
 
-async function start() {
-    try {
+async function initializeConstellation() {
+    if (constellation) {
+        return constellation;
+    }
+
+    if (constellationInitPromise) {
+        return constellationInitPromise;
+    }
+
+    constellationInitPromise = (async () => {
         console.log('\n=== Initialization Starting ===');
         console.log('Memory before buildConstellation:', (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2), 'MB');
-        
-        constellation = await buildConstellation(TLE_PATH);
-        
+
+        const builtConstellation = await buildConstellation(TLE_PATH);
+
         console.log('Memory after buildConstellation:', (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2), 'MB');
         console.log(`Building network graph with spatial indexing (${MAX_LINK_RANGE_KM} km range)...`);
-        
+
         const startTime = Date.now();
-        constellation.buildNetworkGraph(MAX_LINK_RANGE_KM);
+        builtConstellation.buildNetworkGraph(MAX_LINK_RANGE_KM);
         const buildTime = Date.now() - startTime;
-        
+
         console.log('Memory after buildNetworkGraph:', (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2), 'MB');
         console.log(`Build completed in ${(buildTime / 1000).toFixed(2)}s`);
 
-        satelliteById = new Map(constellation.satellites.map((sat) => [Number(sat.id), sat]));
+        satelliteById = new Map(builtConstellation.satellites.map((sat) => [Number(sat.id), sat]));
+        constellation = builtConstellation;
 
         console.log(
             `[init] Loaded ${constellation.satellites.length} satellites from ${path.relative(
@@ -660,6 +703,18 @@ async function start() {
         );
         console.log(`[init] Built static network graph with max range ${MAX_LINK_RANGE_KM} km`);
 
+        return constellation;
+    })().catch((error) => {
+        constellationInitPromise = null;
+        throw error;
+    });
+
+    return constellationInitPromise;
+}
+
+async function start() {
+    try {
+        await initializeConstellation();
         app.listen(PORT, () => {
             console.log(`[server] Satellite Visualizer API running at http://localhost:${PORT}`);
         });
@@ -669,4 +724,10 @@ async function start() {
     }
 }
 
-start();
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === __filename;
+
+if (isDirectRun) {
+    start();
+}
+
+export default app;
