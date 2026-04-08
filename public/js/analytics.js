@@ -31,6 +31,7 @@ const RANGE_COLORS = Object.freeze({
 });
 
 const SESSION_CACHE_KEY = 'analyticsCache.v1';
+const LAST_ROUTE_STORAGE_KEY = 'leorbit.lastRoute.v1';
 
 /* HTML helpers */
 function escapeHtml(s) {
@@ -289,6 +290,16 @@ function clearSessionCache() {
         sessionStorage.removeItem(SESSION_CACHE_KEY);
     } catch {
         // ignore
+    }
+}
+
+function readStoredRoute() {
+    try {
+        const raw = localStorage.getItem(LAST_ROUTE_STORAGE_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+    } catch {
+        return null;
     }
 }
 
@@ -555,10 +566,15 @@ async function fetchLatestRoute() {
     try {
         const response = await fetch('/api/route');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
+        const route = await response.json();
+
+        if (route?.startLocation && route?.endLocation && Array.isArray(route?.path) && route.path.length > 0) {
+            return route;
+        }
+
+        return readStoredRoute();
     } catch {
-        if (elements.routeDisplay) elements.routeDisplay.textContent = 'Error loading route data.';
-        return null;
+        return readStoredRoute();
     }
 }
 
@@ -566,8 +582,18 @@ async function fetchAlgorithmMetrics(algorithmLabel) {
     const algoKey = ALGO_KEY_BY_LABEL[algorithmLabel] || String(algorithmLabel).toLowerCase().replace(/\s+/g, '-');
     if (state.algorithmCache[algoKey]) return state.algorithmCache[algoKey];
 
+    if (!state.currentRouteData?.startSatellite?.id || !state.currentRouteData?.endSatellite?.id) {
+        return null;
+    }
+
     try {
-        const response = await fetch(`/api/analytics/${algoKey}`);
+        const response = await fetch(`/api/analytics/${algoKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                routeData: state.currentRouteData
+            })
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
@@ -683,7 +709,12 @@ async function refreshAll() {
     renderFromCache();
 
     const route = await fetchLatestRoute();
-    if (!route) return;
+    if (!route?.startLocation || !route?.endLocation) {
+        if (elements.routeDisplay) {
+            elements.routeDisplay.innerHTML = renderRouteChip(null);
+        }
+        return;
+    }
 
     if (elements.routeDisplay) elements.routeDisplay.innerHTML = renderRouteChip(route);
 

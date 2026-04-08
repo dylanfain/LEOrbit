@@ -52,6 +52,15 @@ app.use('/api', async (_req, res, next) => {
     }
 });
 
+function getRouteContextFromRequest(req) {
+    const routeData = req.body?.routeData;
+    if (routeData?.startSatellite?.id != null && routeData?.endSatellite?.id != null) {
+        return routeData;
+    }
+
+    return currentRoute;
+}
+
 app.post('/api/route', (req, res) => {
     if (!constellation) {
         return res.status(503).json({ error: 'Constellation not ready' });
@@ -188,10 +197,12 @@ app.get('/api/route', (_req, res) => {
     res.json(currentRoute);
 });
 
-app.get('/api/analytics/algorithm-comparison', (_req, res) => {
+app.all('/api/analytics/algorithm-comparison', (req, res) => {
     try {
+        const routeData = getRouteContextFromRequest(req);
+
         // Return empty comparison if no route data available yet
-        if (!currentRoute.path || currentRoute.path.length === 0) {
+        if (!routeData.path || routeData.path.length === 0) {
             return res.status(200).json({
                 algorithms: [],
                 noRouteData: true,
@@ -199,7 +210,7 @@ app.get('/api/analytics/algorithm-comparison', (_req, res) => {
             });
         }
 
-        const comparisonData = getAlgorithmComparison(currentRoute, constellation);
+        const comparisonData = getAlgorithmComparison(routeData, constellation);
         res.json(comparisonData);
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unable to compute comparison';
@@ -220,20 +231,21 @@ app.get('/api/analytics/algorithm-comparison', (_req, res) => {
     }
 });
 
-// ============== Algorithm Dashboard API GET ==============
-app.get('/api/analytics/:algorithm', (req, res) => {
+// ============== Algorithm Dashboard API ==============
+app.all('/api/analytics/:algorithm', (req, res) => {
     if (!constellation) {
         return res.status(503).json({ error: 'Constellation not ready' });
     }
 
     const { algorithm } = req.params;
+    const routeData = getRouteContextFromRequest(req);
 
     if (!['hop', 'latency', 'bandwidth'].includes(algorithm)) {
         return res.status(400).json({ error: 'Invalid algorithm' });
     }
 
     // Return default metrics if no route data is available yet
-    if (!currentRoute.path || currentRoute.path.length === 0) {
+    if (!routeData.path || routeData.path.length === 0) {
         return res.status(200).json({
             algorithm,
             hops: 0,
@@ -251,8 +263,8 @@ app.get('/api/analytics/:algorithm', (req, res) => {
 
     try {
         // Recompute route with the requested algorithm
-        const startId = currentRoute.startSatellite.id;
-        const endId = currentRoute.endSatellite.id;
+        const startId = routeData.startSatellite.id;
+        const endId = routeData.endSatellite.id;
 
         console.log(`[analytics] ${algorithm} - BEFORE computation`);
         console.log(`  startId: ${startId}, endId: ${endId}`);
@@ -284,14 +296,14 @@ app.get('/api/analytics/:algorithm', (req, res) => {
 
         if (!routeResult) {
             console.log(`[analytics] ${algorithm} - NO ROUTE FOUND`);
-            const fallbackPath = Array.isArray(currentRoute.path) ? currentRoute.path : [];
-            const fallbackLatency = Number.isFinite(Number(currentRoute.estimatedLatencyMs))
-                ? Number(currentRoute.estimatedLatencyMs)
+            const fallbackPath = Array.isArray(routeData.path) ? routeData.path : [];
+            const fallbackLatency = Number.isFinite(Number(routeData.estimatedLatencyMs))
+                ? Number(routeData.estimatedLatencyMs)
                 : computePathLatency(fallbackPath, constellation.networkGraph);
             const fallbackBandwidth = calculateBandwidthUsage(fallbackPath, constellation.networkGraph);
             const fallbackEfficiency = computePathEfficiencyPercentage(
-                currentRoute.startLocation,
-                currentRoute.endLocation,
+                routeData.startLocation,
+                routeData.endLocation,
                 fallbackPath,
                 constellation.networkGraph,
                 satelliteById
@@ -299,14 +311,14 @@ app.get('/api/analytics/:algorithm', (req, res) => {
 
             return res.json({
                 algorithm,
-                hops: Number.isFinite(Number(currentRoute.hops)) ? Number(currentRoute.hops) : includeGroundStationHops(0),
+                hops: Number.isFinite(Number(routeData.hops)) ? Number(routeData.hops) : includeGroundStationHops(0),
                 latency: fallbackLatency,
                 bandwidth: fallbackBandwidth,
                 pathEfficiency: fallbackEfficiency,
                 pathLength: fallbackPath.length,
                 islStats: computeISLStats(fallbackPath, constellation.networkGraph),
-                satellitePositions: Array.isArray(currentRoute.satellitePositions) ? currentRoute.satellitePositions : [],
-                timestamp: currentRoute.timestamp,
+                satellitePositions: Array.isArray(routeData.satellitePositions) ? routeData.satellitePositions : [],
+                timestamp: routeData.timestamp,
                 unavailable: true,
                 message: `No viable ${algorithm} route at current topology; showing fallback metrics from latest computed route.`
             });
@@ -319,8 +331,8 @@ app.get('/api/analytics/:algorithm', (req, res) => {
         const totalHops = includeGroundStationHops(routeResult.hops);
         const bandwidth = algorithm === 'bandwidth' ? routeResult.bottleneckBandwidth : calculateBandwidthUsage(routeResult.path, constellation.networkGraph);
         const pathEfficiency = computePathEfficiencyPercentage(
-            currentRoute.startLocation,
-            currentRoute.endLocation,
+            routeData.startLocation,
+            routeData.endLocation,
             routeResult.path,
             constellation.networkGraph,
             satelliteById
@@ -353,7 +365,7 @@ app.get('/api/analytics/:algorithm', (req, res) => {
             pathLength: routeResult.path.length,
             islStats,
             satellitePositions,
-            timestamp: currentRoute.timestamp
+            timestamp: routeData.timestamp
         };
 
         res.json(analyticsData);

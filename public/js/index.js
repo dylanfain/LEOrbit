@@ -5,6 +5,8 @@ import { LocationService } from './LocationService.js';
 import { createStarfield } from './starfield.js';
 import { PathAnimator } from './PathAnimator.js';
 
+const LAST_ROUTE_STORAGE_KEY = 'leorbit.lastRoute.v1';
+
 // ============== Scene Setup ==============
 const w = window.innerWidth;
 const h = window.innerHeight;
@@ -98,6 +100,14 @@ function setRouteStats(hopsText = '-', latencyText = '-') {
     }
     if (routeStats.latency) {
         routeStats.latency.textContent = latencyText;
+    }
+}
+
+function persistLatestRoute(routePayload) {
+    try {
+        localStorage.setItem(LAST_ROUTE_STORAGE_KEY, JSON.stringify(routePayload));
+    } catch {
+        // ignore storage failures
     }
 }
 
@@ -516,6 +526,7 @@ async function sendRouteToBackend() {
             : '-';
 
         setRouteStats(hopsText, latencyText);
+        persistLatestRoute(data);
         console.log('Route computed:', {
             hops: displayedHops,
             latencyMs: data.estimatedLatencyMs,
