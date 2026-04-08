@@ -352,8 +352,14 @@ function computePathLatency(pathNodes, graph) {
             : graph[String(fromId)] || graph[fromId] || [];
         const edge = edges.find((neighbor) => Number(neighbor.target) === toId);
 
-        if (edge && Number.isFinite(Number(edge.latency))) {
-            total += Number(edge.latency);
+        if (edge) {
+            const latency = Number.isFinite(Number(edge.latency))
+                ? Number(edge.latency)
+                : (Number(edge.distance) / 299792.458);
+
+            if (Number.isFinite(latency)) {
+                total += latency;
+            }
         }
     }
 
@@ -603,8 +609,20 @@ function getAlgorithmComparison(routeData, constellation) {
 
 async function start() {
     try {
+        console.log('\n=== Initialization Starting ===');
+        console.log('Memory before buildConstellation:', (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2), 'MB');
+        
         constellation = await buildConstellation(TLE_PATH);
+        
+        console.log('Memory after buildConstellation:', (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2), 'MB');
+        console.log(`Building network graph with spatial indexing (${MAX_LINK_RANGE_KM} km range)...`);
+        
+        const startTime = Date.now();
         constellation.buildNetworkGraph(MAX_LINK_RANGE_KM);
+        const buildTime = Date.now() - startTime;
+        
+        console.log('Memory after buildNetworkGraph:', (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2), 'MB');
+        console.log(`Build completed in ${(buildTime / 1000).toFixed(2)}s`);
 
         satelliteById = new Map(constellation.satellites.map((sat) => [Number(sat.id), sat]));
 

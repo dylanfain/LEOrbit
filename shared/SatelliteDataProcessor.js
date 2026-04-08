@@ -23,6 +23,8 @@ export function createSatelliteModule(satelliteLib, options = {}) {
         }
     };
 
+    const toEdgeDistance = (distanceKm) => Math.fround(distanceKm);
+
     class SatelliteNode {
         constructor(name, tle1, tle2, id) {
             this.id = id;
@@ -212,47 +214,98 @@ export function createSatelliteModule(satelliteLib, options = {}) {
             return distToEarth > EARTH_RADIUS_KM;
         }
 
+        buildSpatialIndex() {
+            const spatialIndex = new Map();
+            const gridSize = 2000; // 2000 km cells
+
+            this.satellites.forEach((sat) => {
+                if (!sat || !sat.position) return;
+
+                const cellX = Math.floor(sat.position.x / gridSize);
+                const cellY = Math.floor(sat.position.y / gridSize);
+                const cellZ = Math.floor(sat.position.z / gridSize);
+                const cellKey = `${cellX},${cellY},${cellZ}`;
+
+                if (!spatialIndex.has(cellKey)) {
+                    spatialIndex.set(cellKey, []);
+                }
+                spatialIndex.get(cellKey).push(sat);
+            });
+
+            return spatialIndex;
+        }
+
+        getCandidateNeighbors(sat, spatialIndex) {
+            if (!sat || !sat.position) return new Set();
+            const gridSize = 2000;
+            const candidates = new Set();
+            const cellX = Math.floor(sat.position.x / gridSize);
+            const cellY = Math.floor(sat.position.y / gridSize);
+            const cellZ = Math.floor(sat.position.z / gridSize);
+
+            // Check neighboring cells (3x3x3 cube)
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dz = -1; dz <= 1; dz++) {
+                        const key = `${cellX + dx},${cellY + dy},${cellZ + dz}`;
+                        const cellSats = spatialIndex.get(key);
+                        if (cellSats) {
+                            cellSats.forEach((other) => {
+                                if (other && other.id !== sat.id && other.position) {
+                                    candidates.add(other);
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+
+            return candidates;
+        }
+
         buildNetworkGraph(maxRange = 5000) {
             const adjacencyList = new Map();
             this.satellites.forEach((sat) => {
                 adjacencyList.set(sat.id, []);
             });
+
+            // Build spatial index for faster neighbor lookup
+            const spatialIndex = this.buildSpatialIndex();
             let totalLinks = 0;
+            let pairwiseChecks = 0;
 
-            for (let i = 0; i < this.satellites.length; i++) {
-                const sat1 = this.satellites[i];
+            this.satellites.forEach((sat1) => {
                 const sat1Edges = adjacencyList.get(sat1.id);
+                const candidates = this.getCandidateNeighbors(sat1, spatialIndex);
 
-                for (let j = i + 1; j < this.satellites.length; j++) {
-                    const sat2 = this.satellites[j];
+                candidates.forEach((sat2) => {
+                    if (sat1.id >= sat2.id) return; // Avoid duplicate edges
 
+                    pairwiseChecks++;
                     const distance = sat1.distanceTo(sat2);
-                    if (distance === null || distance > maxRange) continue;
+                    if (distance === null || distance > maxRange) return;
 
                     if (this.checkLineOfSight(sat1, sat2)) {
-                        const latency = sat1.latencyTo(sat2);
-
+                        const edgeDistance = toEdgeDistance(distance);
                         sat1Edges.push({
                             target: sat2.id,
-                            distance,
-                            latency
+                            distance: edgeDistance
                         });
 
                         const sat2Edges = adjacencyList.get(sat2.id);
                         sat2Edges.push({
                             target: sat1.id,
-                            distance,
-                            latency
+                            distance: edgeDistance
                         });
 
                         totalLinks++;
                     }
-                }
-            }
+                });
+            });
 
             this.networkGraph = adjacencyList;
             this.logger.info?.(
-                `Network graph built: ${this.satellites.length} nodes, ${totalLinks} links`
+                `Network graph built: ${this.satellites.length} nodes, ${totalLinks} links (${pairwiseChecks} checks)`
             );
 
             return {
@@ -260,6 +313,63 @@ export function createSatelliteModule(satelliteLib, options = {}) {
                 links: totalLinks,
                 graph: adjacencyList
             };
+        }
+
+        buildNetworkGraphLazy(maxRange = 5000) {
+            const adjacencyList = new Map();
+            this.satellites.forEach((sat) => {
+                adjacencyList.set(sat.id, null); // Mark as not yet computed
+            });
+
+            this.networkGraph = adjacencyList;
+            this.maxLazyRange = maxRange;
+            this.lazyGraphCache = new Map(); // Cache computed neighbor sets
+            
+            this.logger.info?.(`Lazy graph initialized for ${this.satellites.length} satellites`);
+            
+            return {
+                nodes: this.satellites.length,
+                links: 0,
+                graph: adjacencyList,
+                mode: 'lazy'
+            };
+        }
+
+        getNeighborsForSatellite(satId) {
+            if (this.networkGraph.get(satId) !== null) {
+                return this.networkGraph.get(satId) || [];
+            }
+
+            // Check cache first
+            if (this.lazyGraphCache.has(satId)) {
+                const cached = this.lazyGraphCache.get(satId);
+                this.networkGraph.set(satId, cached);
+                return cached;
+            }
+
+            // Compute neighbors for this satellite
+            const sat1 = this.satellites[satId];
+            if (!sat1) return [];
+
+            const neighbors = [];
+            for (let i = 0; i < this.satellites.length; i++) {
+                if (i === satId) continue;
+
+                const sat2 = this.satellites[i];
+                const distance = sat1.distanceTo(sat2);
+                
+                if (distance === null || distance > this.maxLazyRange) continue;
+                if (!this.checkLineOfSight(sat1, sat2)) continue;
+                neighbors.push({
+                    target: sat2.id,
+                    distance: toEdgeDistance(distance)
+                });
+            }
+
+            this.networkGraph.set(satId, neighbors);
+            this.lazyGraphCache.set(satId, neighbors);
+            
+            return neighbors;
         }
 
         getSatellite(id) {
@@ -314,28 +424,6 @@ export function createSatelliteModule(satelliteLib, options = {}) {
             };
         }
 
-        exportNetworkState() {
-            const graphEntries = this.networkGraph instanceof Map
-                ? this.networkGraph
-                : new Map();
-
-            return {
-                timestamp: this.lastUpdateTime,
-                satellites: this.satellites.map((sat) => ({
-                    id: sat.id,
-                    name: sat.name,
-                    position: sat.position,
-                    positionGeodetic: sat.getGeodeticDegrees(),
-                    neighbors: this.networkGraph.get(sat.id) || [],
-                    bandwidth: {
-                        total: sat.maxBandwidth,
-                        available: sat.availableBandwidth,
-                        load: sat.currentLoad
-                    }
-                })),
-                graph: Object.fromEntries(graphEntries)
-            };
-        }
     }
 
     return {
