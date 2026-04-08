@@ -30,6 +30,7 @@
             --lh: 1.28;
 
             --page-pad: 20px;
+            --tabs-offset: 64px;
         }
 
         html, body {
@@ -51,7 +52,7 @@
 
         #top-tabs {
             position: fixed;
-            top: 20px;
+            top: 14px;
             left: 50%;
             transform: translateX(-50%);
             display: flex;
@@ -75,7 +76,7 @@
 
         .top-row {
             position: fixed;
-            top: var(--page-pad);
+            top: calc(var(--page-pad) + var(--tabs-offset));
             left: var(--page-pad);
             right: var(--page-pad);
             z-index: 20;
@@ -180,7 +181,7 @@
             left: var(--page-pad);
             right: var(--page-pad);
             bottom: var(--page-pad);
-            top: 130px;
+            top: calc(130px + var(--tabs-offset));
             z-index: 10;
 
             display: flex;
@@ -428,6 +429,42 @@
             line-height: 1.3;
             pointer-events: none;
             backdrop-filter: blur(8px);
+        }
+
+        @media (max-width: 900px) {
+            :root {
+                --page-pad: 10px;
+                --tabs-offset: 72px;
+            }
+
+            #top-tabs {
+                top: 10px;
+                gap: 8px;
+            }
+
+            .tab {
+                padding: 7px 12px;
+                font-size: 12px;
+            }
+
+            .top-row {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+            }
+
+            #ui-panel {
+                min-width: 0;
+                max-width: none;
+            }
+
+            .main-content {
+                top: calc(220px + var(--tabs-offset));
+            }
+
+            .graph-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 

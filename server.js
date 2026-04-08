@@ -389,8 +389,9 @@ function calculateBandwidthUsage(pathNodes, graph) {
         const edge = edges.find((neighbor) => Number(neighbor.target) === toId);
 
         if (edge) {
-            const latency = Number(edge.latency ?? 0);
-            const bandwidth = edge.bandwidth ?? (100 - latency / 10);
+            const bandwidth = Number.isFinite(Number(edge.bandwidth))
+                ? Number(edge.bandwidth)
+                : Math.max(10, 100 - (Number(edge.distance ?? 5000) / 50));
             totalBandwidth += Number(bandwidth);
             linkCount++;
         }
