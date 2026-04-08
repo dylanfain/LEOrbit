@@ -250,7 +250,32 @@ app.get('/api/analytics/:algorithm', (req, res) => {
 
         if (!routeResult) {
             console.log(`[analytics] ${algorithm} - NO ROUTE FOUND`);
-            return res.status(404).json({ error: 'No route found for this algorithm' });
+            const fallbackPath = Array.isArray(currentRoute.path) ? currentRoute.path : [];
+            const fallbackLatency = Number.isFinite(Number(currentRoute.estimatedLatencyMs))
+                ? Number(currentRoute.estimatedLatencyMs)
+                : computePathLatency(fallbackPath, constellation.networkGraph);
+            const fallbackBandwidth = calculateBandwidthUsage(fallbackPath, constellation.networkGraph);
+            const fallbackEfficiency = computePathEfficiencyPercentage(
+                currentRoute.startLocation,
+                currentRoute.endLocation,
+                fallbackPath,
+                constellation.networkGraph,
+                satelliteById
+            );
+
+            return res.json({
+                algorithm,
+                hops: Number.isFinite(Number(currentRoute.hops)) ? Number(currentRoute.hops) : includeGroundStationHops(0),
+                latency: fallbackLatency,
+                bandwidth: fallbackBandwidth,
+                pathEfficiency: fallbackEfficiency,
+                pathLength: fallbackPath.length,
+                islStats: computeISLStats(fallbackPath, constellation.networkGraph),
+                satellitePositions: Array.isArray(currentRoute.satellitePositions) ? currentRoute.satellitePositions : [],
+                timestamp: currentRoute.timestamp,
+                unavailable: true,
+                message: `No viable ${algorithm} route at current topology; showing fallback metrics from latest computed route.`
+            });
         }
 
         console.log(`[analytics] ${algorithm} - path: ${routeResult.path.join('->')}, hops: ${routeResult.hops}`);
