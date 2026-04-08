@@ -27,18 +27,12 @@ export function createSatelliteModule(satelliteLib, options = {}) {
         constructor(name, tle1, tle2, id) {
             this.id = id;
             this.name = name;
-            this.tle1 = tle1;
-            this.tle2 = tle2;
 
             this.satrec = satelliteLib.twoline2satrec(tle1, tle2);
 
             this.position = null;
             this.velocity = null;
             this.positionGeodetic = null;
-
-            this.visibleNeighbors = [];
-            this.neighborDistances = new Map();
-            this.neighborLatencies = new Map();
 
             this.currentLoad = 0;
             this.maxBandwidth = 1000;
@@ -219,12 +213,6 @@ export function createSatelliteModule(satelliteLib, options = {}) {
         }
 
         buildNetworkGraph(maxRange = 5000) {
-            this.satellites.forEach((sat) => {
-                sat.visibleNeighbors = [];
-                sat.neighborDistances.clear();
-                sat.neighborLatencies.clear();
-            });
-
             const adjacencyList = new Map();
             this.satellites.forEach((sat) => {
                 adjacencyList.set(sat.id, []);
@@ -242,16 +230,7 @@ export function createSatelliteModule(satelliteLib, options = {}) {
                     if (distance === null || distance > maxRange) continue;
 
                     if (this.checkLineOfSight(sat1, sat2)) {
-                        sat1.visibleNeighbors.push(sat2.id);
-                        sat2.visibleNeighbors.push(sat1.id);
-
                         const latency = sat1.latencyTo(sat2);
-
-                        sat1.neighborDistances.set(sat2.id, distance);
-                        sat1.neighborLatencies.set(sat2.id, latency);
-
-                        sat2.neighborDistances.set(sat1.id, distance);
-                        sat2.neighborLatencies.set(sat1.id, latency);
 
                         sat1Edges.push({
                             target: sat2.id,
@@ -315,7 +294,7 @@ export function createSatelliteModule(satelliteLib, options = {}) {
                     closestSat = sat;
                 }
 
-                const neighborCount = sat.visibleNeighbors?.length ?? 0;
+                const neighborCount = this.networkGraph.get(sat.id)?.length ?? 0;
                 if (
                     neighborCount >= minNeighbors &&
                     distance < bestConnectedDistance
@@ -331,7 +310,7 @@ export function createSatelliteModule(satelliteLib, options = {}) {
             return {
                 satellite: chosenSat,
                 distance: chosenDistance,
-                neighborCount: chosenSat?.visibleNeighbors?.length ?? 0
+                neighborCount: this.networkGraph.get(chosenSat?.id)?.length ?? 0
             };
         }
 
@@ -347,9 +326,7 @@ export function createSatelliteModule(satelliteLib, options = {}) {
                     name: sat.name,
                     position: sat.position,
                     positionGeodetic: sat.getGeodeticDegrees(),
-                    neighbors: sat.visibleNeighbors,
-                    neighborDistances: Object.fromEntries(sat.neighborDistances),
-                    neighborLatencies: Object.fromEntries(sat.neighborLatencies),
+                    neighbors: this.networkGraph.get(sat.id) || [],
                     bandwidth: {
                         total: sat.maxBandwidth,
                         available: sat.availableBandwidth,
