@@ -1,3 +1,5 @@
+import { loadRoutePayload } from './route-session.js';
+
 Chart.defaults.color = '#cfe4ff';
 Chart.defaults.borderColor = 'rgba(100, 150, 255, 0.2)';
 
@@ -189,9 +191,13 @@ function pathEfficiencyColor(percent) {
 
 function formatNumber(value, metric) {
     const n = Number(value);
+    if (metric === 'Hops') {
+        if (!Number.isFinite(n)) return '0';
+        return Math.round(n).toString();
+    }
+
     if (!Number.isFinite(n)) return '0.00';
     if (n === 0) return '0.00';
-    if (metric === 'Hops') return Math.round(n).toString();
     if (metric === 'Path Efficiency') return n.toFixed(1);
 
     const abs = Math.abs(n);
@@ -311,8 +317,8 @@ function getMetricValue(metric, algoData, routeData) {
     if (metric === 'Hops') return getDisplayedHopCount(routeData, algoData);
 
     if (algoData) {
-        if (metric === 'Latency') return algoData.latencyMs ?? algoData.latency ?? 0;
-        if (metric === 'Bandwidth') return algoData.bandwidth ?? 0;
+        if (metric === 'Latency') return algoData.estimatedLatencyMs ?? algoData.latencyMs ?? algoData.latency ?? 0;
+        if (metric === 'Bandwidth') return algoData.bandwidthUsage ?? algoData.bandwidth ?? 0;
     }
 
     if (metric === 'Latency') return routeData?.estimatedLatencyMs || 0;
@@ -478,6 +484,9 @@ function algoColorsFor(algoName) {
 function makeBarChart(canvasEl, labels, values, colorsForBars, metricName, unit, yMax) {
     if (!canvasEl) return null;
 
+    const isHopMetric = metricName === 'Hops';
+    const hopMax = isHopMetric ? Math.max(0, ...values.map((value) => Math.round(Number(value) || 0))) : undefined;
+
     return new Chart(canvasEl, {
         type: 'bar',
         data: {
@@ -516,10 +525,12 @@ function makeBarChart(canvasEl, labels, values, colorsForBars, metricName, unit,
             scales: {
                 y: {
                     beginAtZero: true,
-                    max: yMax,
+                    max: yMax ?? (isHopMetric ? hopMax + 1 : undefined),
                     ticks: {
                         color: '#cfe4ff',
                         font: { size: 12 },
+                        stepSize: isHopMetric ? 1 : undefined,
+                        precision: isHopMetric ? 0 : undefined,
                         callback: (v) => formatNumber(Number(v), metricName),
                     },
                     grid: { color: 'rgba(100, 150, 255, 0.12)' },
@@ -552,6 +563,11 @@ function renderGraph(metricDataByAlgo, selectedAlgos) {
 
 /* Network/API fetching */
 async function fetchLatestRoute() {
+    const sessionRoute = loadRoutePayload();
+    if (sessionRoute?.startLocation && sessionRoute?.endLocation) {
+        return sessionRoute;
+    }
+
     try {
         const response = await fetch('/api/route');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -565,6 +581,12 @@ async function fetchLatestRoute() {
 async function fetchAlgorithmMetrics(algorithmLabel) {
     const algoKey = ALGO_KEY_BY_LABEL[algorithmLabel] || String(algorithmLabel).toLowerCase().replace(/\s+/g, '-');
     if (state.algorithmCache[algoKey]) return state.algorithmCache[algoKey];
+
+    const localRouteData = state.currentRouteData?.algorithms?.[algoKey];
+    if (localRouteData) {
+        state.algorithmCache[algoKey] = localRouteData;
+        return localRouteData;
+    }
 
     try {
         const response = await fetch(`/api/analytics/${algoKey}`);
@@ -600,16 +622,12 @@ function renderRouteChip(route) {
             ? `${Number(route.endLocation.lat).toFixed(2)}, ${Number(route.endLocation.lon).toFixed(2)}`
             : 'Unknown');
 
-    const pathLen = Array.isArray(route.path) ? route.path.length : (route.path?.length ?? 0);
-
     const leftTitle = escapeHtml(`${startName} → ${endName}`);
     const leftText = escapeHtml(`${startName} → ${endName} `);
-    const rightText = escapeHtml(`${pathLen} satellites`);
 
     return `
     <div class="stat-row">
       <span class="stat-label stat-route" title="${leftTitle}">${leftText}</span>
-      <span class="stat-value">${rightText}</span>
     </div>
   `;
 }
@@ -701,8 +719,21 @@ async function refreshAll() {
     renderFromCache();
 }
 
-elements.panelViewBtn?.addEventListener('click', () => setViewMode('panel'));
-elements.graphViewBtn?.addEventListener('click', () => setViewMode('graph'));
+function bindViewToggle(button, mode) {
+    if (!button) return;
+
+    const activate = (event) => {
+        event?.preventDefault?.();
+        setViewMode(mode);
+    };
+
+    button.addEventListener('click', activate);
+    button.addEventListener('pointerup', activate);
+    button.addEventListener('touchend', activate, { passive: false });
+}
+
+bindViewToggle(elements.panelViewBtn, 'panel');
+bindViewToggle(elements.graphViewBtn, 'graph');
 
 bindAlgorithmTooltips();
 setViewMode('graph');

@@ -245,7 +245,7 @@ export function createSatelliteModule(satelliteLib, options = {}) {
                         sat1.visibleNeighbors.push(sat2.id);
                         sat2.visibleNeighbors.push(sat1.id);
 
-                        const latency = sat1.latencyTo(sat2);
+                        const latency = distance / SPEED_OF_LIGHT_KM_MS;
 
                         sat1.neighborDistances.set(sat2.id, distance);
                         sat1.neighborLatencies.set(sat2.id, latency);
@@ -289,6 +289,8 @@ export function createSatelliteModule(satelliteLib, options = {}) {
 
         findClosestSatelliteToLocation(latitude, longitude, altitude = 0, options = {}) {
             const { minNeighbors = 0 } = options;
+            const latitudeRadians = latitude * Math.PI / 180;
+            const earthKmAtLatitude = EARTH_RADIUS_KM * Math.cos(latitudeRadians);
 
             let closestSat = null;
             let closestDistance = Infinity;
@@ -306,7 +308,7 @@ export function createSatelliteModule(satelliteLib, options = {}) {
 
                 const distance = Math.sqrt(
                     (EARTH_RADIUS_KM * latDiff) ** 2 +
-                    (EARTH_RADIUS_KM * Math.cos(latitude * Math.PI / 180) * lonDiff) ** 2 +
+                    (earthKmAtLatitude * lonDiff) ** 2 +
                     altDiff ** 2
                 );
 

@@ -184,6 +184,24 @@
       color: #fff;
     }
 
+    .algorithm-btn[data-algorithm="hop"].active {
+      background: rgba(197, 64, 255, 0.22);
+      border-color: rgba(197, 64, 255, 0.85);
+      box-shadow: inset 0 0 0 1px rgba(197, 64, 255, 0.28);
+    }
+
+    .algorithm-btn[data-algorithm="latency"].active {
+      background: rgba(255, 199, 64, 0.22);
+      border-color: rgba(255, 199, 64, 0.85);
+      box-shadow: inset 0 0 0 1px rgba(255, 199, 64, 0.28);
+    }
+
+    .algorithm-btn[data-algorithm="bandwidth"].active {
+      background: rgba(64, 210, 255, 0.22);
+      border-color: rgba(64, 210, 255, 0.85);
+      box-shadow: inset 0 0 0 1px rgba(64, 210, 255, 0.28);
+    }
+
     .color-picker-row {
       display: flex;
       align-items: center;
@@ -553,6 +571,135 @@
       opacity: 0.75;
       line-height: var(--lh);
     }
+
+    .panel-toggle-btn {
+      position: fixed;
+      left: 20px;
+      top: 20px;
+      z-index: 35;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 14px;
+      border: var(--border);
+      border-radius: 999px;
+      background: rgba(10, 10, 20, 0.86);
+      color: #cfe4ff;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+      backdrop-filter: blur(10px);
+      box-shadow: var(--shadow);
+      cursor: pointer;
+    }
+
+    body.panel-collapsed #ui-panel {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-16px);
+    }
+
+    @media (max-width: 900px) {
+      body {
+        overflow: auto;
+      }
+
+      #top-tabs {
+        top: 12px;
+        gap: 8px;
+        width: calc(100vw - 24px);
+        max-width: 420px;
+      }
+
+      .tab {
+        flex: 1 1 0;
+        text-align: center;
+        padding: 10px 12px;
+        font-size: 13px;
+      }
+
+      #ui-panel {
+        top: 72px;
+        left: 12px;
+        right: 12px;
+        min-width: 0;
+        max-width: none;
+        max-height: min(46vh, 520px);
+        padding: 14px;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+      }
+
+      #ui-panel h2 {
+        font-size: 20px;
+      }
+
+      .panel-toggle-btn {
+        display: inline-flex;
+        left: 12px;
+        right: 12px;
+        top: calc(72px + min(46vh, 520px) + 8px);
+        bottom: auto;
+        padding: 11px 14px;
+        background: rgba(10, 10, 20, 0.92);
+      }
+
+      body.panel-collapsed .panel-toggle-btn {
+        top: 72px;
+      }
+    }
+
+    @media (max-width: 600px) {
+      #top-tabs {
+        top: max(10px, env(safe-area-inset-top));
+      }
+
+      #ui-panel {
+        top: calc(max(10px, env(safe-area-inset-top)) + 52px);
+        left: 10px;
+        right: 10px;
+        max-height: min(54vh, 560px);
+        border-radius: 14px;
+        padding: 12px;
+      }
+
+      .panel-toggle-btn {
+        left: 10px;
+        right: 10px;
+        top: calc(max(10px, env(safe-area-inset-top)) + 52px + min(54vh, 560px) + 8px);
+        bottom: auto;
+        justify-content: center;
+        padding: 12px 14px;
+        font-size: 13px;
+      }
+
+      body.panel-collapsed .panel-toggle-btn {
+        top: calc(max(10px, env(safe-area-inset-top)) + 52px + 8px);
+      }
+
+      .algorithm-buttons {
+        gap: 6px;
+      }
+
+      .algorithm-btn {
+        flex: 1 1 100%;
+        min-width: 0;
+        text-align: center;
+        padding: 9px 10px;
+      }
+
+      .stat-value {
+        font-size: 16px;
+      }
+
+      .toggle-label {
+        font-size: var(--fs-12);
+      }
+
+      #loading {
+        width: calc(100vw - 40px);
+        text-align: center;
+      }
+    }
   </style>
   <script type="importmap">
     {
@@ -568,6 +715,10 @@
   <a href="index.html" class="tab active">Satellite Visualizer</a>
   <a href="analytics.html" class="tab">Analytics</a>
 </div>
+
+<button id="panel-toggle-btn" class="panel-toggle-btn" type="button" aria-expanded="true" aria-controls="ui-panel">
+  Hide Controls
+</button>
 
 <div id="loading">
   <div class="spinner"></div>
@@ -614,15 +765,15 @@
   <button id="run-route" class="primary-button" disabled>Run Route</button>
 
   <div class="control-group">
-    <label>Routing Algorithm</label>
+    <label>Displayed Routes</label>
     <div class="algorithm-buttons">
-      <button class="algorithm-btn active" data-algorithm="hop">Hop Count</button>
-      <button class="algorithm-btn" data-algorithm="latency">Latency</button>
-      <button class="algorithm-btn" data-algorithm="bandwidth">Bandwidth</button>
+      <button class="algorithm-btn active" type="button" data-algorithm="hop">Hop Count</button>
+      <button class="algorithm-btn" type="button" data-algorithm="latency">Latency</button>
+      <button class="algorithm-btn" type="button" data-algorithm="bandwidth">Bandwidth</button>
     </div>
   </div>
 
-  <div class="run-hint">Select both locations, then click Run to compute the path.</div>
+  <div class="run-hint">Run computes all three algorithms. Toggle one or more colored routes to compare them in the 3D view.</div>
 
   <div class="section-divider"></div>
   <div class="section-title">Display Settings</div>

@@ -1,8 +1,8 @@
 /**
- * Finds the path that maximizes bottleneck bandwidth.
+ * Finds the path that minimizes aggregate bandwidth usage.
  *
- * Path bandwidth = minimum edge bandwidth along the path.
- * This algorithm chooses the path whose minimum bandwidth is as large as possible.
+ * The UI treats lower "bandwidth usage" as better, so the routing layer needs to
+ * minimize that same cost instead of maximizing available bandwidth.
  *
  * @param {Object} networkState - Output of SatelliteConstellation.exportNetworkState()
  * @param {number} sourceId
@@ -30,48 +30,45 @@ export function widestPathBandwidth(networkState, sourceId, destinationId) {
 
   const nodes = collectNodeIds(graph, sourceId, destinationId);
 
-  const bestBandwidth = new Map();
+  const dist = new Map();
   const parent = new Map();
-  const finalized = new Set();
-  const heap = new MaxHeap();
+  const heap = new MinHeap();
 
   for (const node of nodes) {
-    bestBandwidth.set(node, -Infinity);
+    dist.set(node, Infinity);
     parent.set(node, null);
   }
 
-  bestBandwidth.set(sourceId, Infinity);
-  heap.push({ node: sourceId, bandwidth: Infinity });
+  dist.set(sourceId, 0);
+  heap.push({ node: sourceId, cost: 0 });
 
   while (heap.size() > 0) {
     const current = heap.pop();
+    if (!current) break;
     const u = current.node;
 
-    if (finalized.has(u)) continue;
-    finalized.add(u);
+    if (current.cost > dist.get(u)) continue;
 
     if (u === destinationId) break;
 
     const edges = graph.get(u) || [];
     for (const edge of edges) {
       const v = Number(edge.target);
-      if (finalized.has(v)) continue;
+      const edgeCost = getEdgeBandwidthUsage(edge);
+      if (!Number.isFinite(edgeCost) || edgeCost < 0) continue;
 
-      const edgeBandwidth = getEdgeBandwidth(edge);
-      if (!Number.isFinite(edgeBandwidth) || edgeBandwidth < 0) continue;
+      const candidateCost = dist.get(u) + edgeCost;
 
-      const candidateBandwidth = Math.min(bestBandwidth.get(u), edgeBandwidth);
-
-      if (candidateBandwidth > bestBandwidth.get(v)) {
-        bestBandwidth.set(v, candidateBandwidth);
+      if (candidateCost < dist.get(v)) {
+        dist.set(v, candidateCost);
         parent.set(v, u);
-        heap.push({ node: v, bandwidth: candidateBandwidth });
+        heap.push({ node: v, cost: candidateCost });
       }
     }
   }
 
-  const finalBandwidth = bestBandwidth.get(destinationId);
-  if (!Number.isFinite(finalBandwidth) || finalBandwidth === -Infinity) {
+  const finalCost = dist.get(destinationId);
+  if (!Number.isFinite(finalCost) || finalCost === Infinity) {
     return null;
   }
 
@@ -81,7 +78,7 @@ export function widestPathBandwidth(networkState, sourceId, destinationId) {
   return {
     path,
     hops: path.length - 1,
-    bottleneckBandwidth: finalBandwidth
+    bottleneckBandwidth: Number((100 - (finalCost / Math.max(path.length - 1, 1))).toFixed(2))
   };
 }
 
@@ -122,6 +119,10 @@ function getEdgeBandwidth(edge) {
   return Math.max(10, 100 - (distance / 50));
 }
 
+function getEdgeBandwidthUsage(edge) {
+  return 100 - getEdgeBandwidth(edge);
+}
+
 function normalizeGraph(graph) {
   if (graph instanceof Map) {
     return graph;
@@ -144,7 +145,7 @@ function normalizeGraph(graph) {
   return normalized;
 }
 
-class MaxHeap {
+class MinHeap {
   constructor() {
     this.data = [];
   }
@@ -175,7 +176,7 @@ class MaxHeap {
   #bubbleUp(index) {
     while (index > 0) {
       const parent = Math.floor((index - 1) / 2);
-      if (this.data[parent].bandwidth >= this.data[index].bandwidth) break;
+      if (this.data[parent].cost <= this.data[index].cost) break;
 
       [this.data[parent], this.data[index]] = [this.data[index], this.data[parent]];
       index = parent;
@@ -192,14 +193,14 @@ class MaxHeap {
 
       if (
         left < length &&
-        this.data[left].bandwidth > this.data[largest].bandwidth
+        this.data[left].cost < this.data[largest].cost
       ) {
         largest = left;
       }
 
       if (
         right < length &&
-        this.data[right].bandwidth > this.data[largest].bandwidth
+        this.data[right].cost < this.data[largest].cost
       ) {
         largest = right;
       }

@@ -16,6 +16,7 @@ const TLE_PATH = process.env.TLE_PATH ?? path.join(__dirname, 'public', 'data', 
 const app = express();
 
 const GROUND_STATION_HOP_COUNT = 2;
+const ROUTING_ALGORITHMS = ['hop', 'latency', 'bandwidth'];
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -34,6 +35,8 @@ let currentRoute = {
     endLocation: null,
     startSatellite: null,
     endSatellite: null,
+    algorithms: {},
+    defaultAlgorithm: 'hop',
     path: [],
     satellitePositions: [],
     hops: 0,
@@ -57,7 +60,7 @@ app.post('/api/route', (req, res) => {
         validationErrors.push('end');
     }
 
-    if (!['hop', 'latency', 'bandwidth'].includes(algorithm)) {
+    if (!ROUTING_ALGORITHMS.includes(algorithm)) {
         validationErrors.push('algorithm');
     }
 
@@ -93,32 +96,23 @@ app.post('/api/route', (req, res) => {
         return res.status(503).json({ error: 'Unable to locate satellites for the requested positions' });
     }
 
-    let routeResult;
-    switch (algorithm) {
-        case 'hop':
-            routeResult = dijkstraHopShortestPath(
-                { graph: constellation.networkGraph },
-                startMatch.satellite.id,
-                endMatch.satellite.id
-            );
-            break;
-        case 'latency':
-            routeResult = dijkstraLatencyShortestPath(
-                { graph: constellation.networkGraph },
-                startMatch.satellite.id,
-                endMatch.satellite.id
-            );
-            break;
-        case 'bandwidth':
-            routeResult = widestPathBandwidth(
-                { graph: constellation.networkGraph },
-                startMatch.satellite.id,
-                endMatch.satellite.id
-            );
-            break;
+    const algorithms = {};
+
+    for (const algo of ROUTING_ALGORITHMS) {
+        const routeDetails = computeRouteDetails(
+            algo,
+            startMatch.satellite.id,
+            endMatch.satellite.id,
+            start,
+            end
+        );
+
+        if (routeDetails) {
+            algorithms[algo] = routeDetails;
+        }
     }
 
-    if (!routeResult) {
+    if (Object.keys(algorithms).length === 0) {
         console.warn('[route] No viable path found', {
             startId: startMatch.satellite.id,
             endId: endMatch.satellite.id,
@@ -128,42 +122,28 @@ app.post('/api/route', (req, res) => {
         return res.status(503).json({ error: 'No viable route between the selected locations' });
     }
 
-    const estimatedLatencyMs = algorithm === 'latency' ? routeResult.totalLatency : computePathLatency(routeResult.path, constellation.networkGraph);
-    const islStats = computeISLStats(routeResult.path, constellation.networkGraph);
-    const totalHops = includeGroundStationHops(routeResult.hops);
-    const bottleneckBandwidth = algorithm === 'bandwidth' ? routeResult.bottleneckBandwidth : null;
-
-    const satellitePositions = Array.isArray(routeResult.path)
-        ? routeResult.path.map((satIdRaw) => {
-            const satId = Number(satIdRaw);
-            const sat = satelliteById.get(satId);
-            const geo = sat?.getGeodeticDegrees();
-            return {
-                id: satId,
-                name: sat?.name ?? null,
-                lat: geo?.latitude ?? null,
-                lon: geo?.longitude ?? null,
-                altitude: geo?.altitude ?? null
-            };
-        })
-        : [];
+    const preferredAlgorithm = algorithms[algorithm] ? algorithm : (algorithms.hop ? 'hop' : Object.keys(algorithms)[0]);
+    const primaryRoute = algorithms[preferredAlgorithm];
 
     currentRoute = {
         startLocation: start,
         endLocation: end,
         startSatellite: formatSatelliteMatch(startMatch),
         endSatellite: formatSatelliteMatch(endMatch),
-        path: routeResult.path,
-        satellitePositions,
-        hops: totalHops,
-        estimatedLatencyMs,
-        islStats,
-        algorithm,
-        bottleneckBandwidth,
+        algorithms,
+        defaultAlgorithm: preferredAlgorithm,
+        path: primaryRoute.path,
+        satellitePositions: primaryRoute.satellitePositions,
+        hops: primaryRoute.hops,
+        estimatedLatencyMs: primaryRoute.estimatedLatencyMs,
+        islStats: primaryRoute.islStats,
+        algorithm: preferredAlgorithm,
+        bottleneckBandwidth: primaryRoute.bottleneckBandwidth ?? null,
+        bandwidthUsage: primaryRoute.bandwidthUsage ?? 0,
         timestamp: now.toISOString()
     };
 
-    logRouteSummary(start, end, totalHops, estimatedLatencyMs, algorithm);
+    logRouteSummary(start, end, primaryRoute.hops, primaryRoute.estimatedLatencyMs, preferredAlgorithm);
     logRouteDetails(currentRoute);
 
     res.json(currentRoute);
@@ -204,104 +184,25 @@ app.get('/api/analytics/:algorithm', (req, res) => {
 
     const { algorithm } = req.params;
 
-    if (!['hop', 'latency', 'bandwidth'].includes(algorithm)) {
+    if (!ROUTING_ALGORITHMS.includes(algorithm)) {
         return res.status(400).json({ error: 'Invalid algorithm' });
     }
 
-    if (!currentRoute.path || currentRoute.path.length === 0) {
+    const algorithmRoute = currentRoute.algorithms?.[algorithm];
+
+    if (!algorithmRoute) {
         return res.status(404).json({
             error: 'No route data available',
             message: 'Please calculate a route first in the 3D Visualization tab'
         });
     }
 
-    try {
-        // Recompute route with the requested algorithm
-        const startId = currentRoute.startSatellite.id;
-        const endId = currentRoute.endSatellite.id;
-
-        console.log(`[analytics] ${algorithm} - BEFORE computation`);
-        console.log(`  startId: ${startId}, endId: ${endId}`);
-
-        let routeResult;
-        switch (algorithm) {
-            case 'hop':
-                routeResult = dijkstraHopShortestPath(
-                    { graph: constellation.networkGraph },
-                    startId,
-                    endId
-                );
-                break;
-            case 'latency':
-                routeResult = dijkstraLatencyShortestPath(
-                    { graph: constellation.networkGraph },
-                    startId,
-                    endId
-                );
-                break;
-            case 'bandwidth':
-                routeResult = widestPathBandwidth(
-                    { graph: constellation.networkGraph },
-                    startId,
-                    endId
-                );
-                break;
-        }
-
-        if (!routeResult) {
-            console.log(`[analytics] ${algorithm} - NO ROUTE FOUND`);
-            return res.status(404).json({ error: 'No route found for this algorithm' });
-        }
-
-        console.log(`[analytics] ${algorithm} - path: ${routeResult.path.join('->')}, hops: ${routeResult.hops}`);
-
-        const estimatedLatencyMs = algorithm === 'latency' ? routeResult.totalLatency : computePathLatency(routeResult.path, constellation.networkGraph);
-        const islStats = computeISLStats(routeResult.path, constellation.networkGraph);
-        const totalHops = includeGroundStationHops(routeResult.hops);
-        const bandwidth = algorithm === 'bandwidth' ? routeResult.bottleneckBandwidth : calculateBandwidthUsage(routeResult.path, constellation.networkGraph);
-        const pathEfficiency = computePathEfficiencyPercentage(
-            currentRoute.startLocation,
-            currentRoute.endLocation,
-            routeResult.path,
-            constellation.networkGraph,
-            satelliteById
-        );
-        
-        // Build satellite positions for this algorithm's path
-        const satellitePositions = Array.isArray(routeResult.path)
-            ? routeResult.path.map((satIdRaw) => {
-                const satId = Number(satIdRaw);
-                const sat = satelliteById.get(satId);
-                const geo = sat?.getGeodeticDegrees();
-                return {
-                    id: satId,
-                    name: sat?.name ?? null,
-                    lat: geo?.latitude ?? null,
-                    lon: geo?.longitude ?? null,
-                    altitude: geo?.altitude ?? null
-                };
-            })
-            : [];
-        
-        console.log(`[analytics] ${algorithm} FINAL STATS:`);
-        console.log(`  hops: ${totalHops}, latency: ${estimatedLatencyMs}ms, pathLength: ${routeResult.path.length}, efficiency: ${pathEfficiency}%, bandwidth: ${bandwidth}`);
-        const analyticsData = {
-            algorithm,
-            hops: totalHops,
-            latency: estimatedLatencyMs,
-            bandwidth,
-            pathEfficiency,
-            pathLength: routeResult.path.length,
-            islStats,
-            satellitePositions,
-            timestamp: currentRoute.timestamp
-        };
-
-        res.json(analyticsData);
-    } catch (error) {
-        console.error(`Error in analytics for ${algorithm}:`, error);
-        return res.status(500).json({ error: 'Internal server error' });
-    }
+    res.json({
+        ...algorithmRoute,
+        latency: algorithmRoute.estimatedLatencyMs,
+        bandwidth: algorithmRoute.bandwidthUsage,
+        timestamp: currentRoute.timestamp
+    });
 });
 
 function isValidLocation(location) {
@@ -365,6 +266,15 @@ function includeGroundStationHops(satelliteHopCount) {
     return Number.isFinite(baseHopCount) ? baseHopCount + GROUND_STATION_HOP_COUNT : GROUND_STATION_HOP_COUNT;
 }
 
+function getEdgeAvailableBandwidth(edge) {
+    if (edge && Number.isFinite(Number(edge.bandwidth))) {
+        return Number(edge.bandwidth);
+    }
+
+    const distance = Number(edge?.distance ?? 5000);
+    return Math.max(10, 100 - (distance / 50));
+}
+
 // ============== Pseudo Bandwidth Info (Until we get it) ==============
 function calculateBandwidthUsage(pathNodes, graph) {
     if (!Array.isArray(pathNodes) || pathNodes.length < 2) {
@@ -383,9 +293,7 @@ function calculateBandwidthUsage(pathNodes, graph) {
         const edge = edges.find((neighbor) => Number(neighbor.target) === toId);
 
         if (edge) {
-            const latency = Number(edge.latency ?? 0);
-            const bandwidth = edge.bandwidth ?? (100 - latency / 10);
-            totalBandwidth += Number(bandwidth);
+            totalBandwidth += 100 - getEdgeAvailableBandwidth(edge);
             linkCount++;
         }
     }
@@ -549,47 +457,16 @@ function getAlgorithmComparison(routeData, constellation) {
         throw new Error('No route data available');
     }
 
-    const startId = routeData.startSatellite.id;
-    const endId = routeData.endSatellite.id;
-    const algorithms = ['hop', 'latency', 'bandwidth'];
     const results = {};
 
-    for (const algo of algorithms) {
-        let routeResult;
-        switch (algo) {
-            case 'hop':
-                routeResult = dijkstraHopShortestPath(
-                    { graph: constellation.networkGraph },
-                    startId,
-                    endId
-                );
-                break;
-            case 'latency':
-                routeResult = dijkstraLatencyShortestPath(
-                    { graph: constellation.networkGraph },
-                    startId,
-                    endId
-                );
-                break;
-            case 'bandwidth':
-                routeResult = widestPathBandwidth(
-                    { graph: constellation.networkGraph },
-                    startId,
-                    endId
-                );
-                break;
-        }
-
-        if (routeResult) {
-            const estimatedLatencyMs = algo === 'latency' ? routeResult.totalLatency : computePathLatency(routeResult.path, constellation.networkGraph);
-            const totalHops = includeGroundStationHops(routeResult.hops);
-            const bandwidth = algo === 'bandwidth' ? routeResult.bottleneckBandwidth : calculateBandwidthUsage(routeResult.path, constellation.networkGraph);
-
+    for (const algo of ROUTING_ALGORITHMS) {
+        const routeDetails = routeData.algorithms?.[algo];
+        if (routeDetails) {
             results[algo] = {
-                hops: totalHops,
-                latency: estimatedLatencyMs,
-                bandwidth,
-                pathLength: routeResult.path.length
+                hops: routeDetails.hops,
+                latency: routeDetails.estimatedLatencyMs,
+                bandwidth: routeDetails.bandwidthUsage,
+                pathLength: routeDetails.pathLength
             };
         }
     }
@@ -599,6 +476,80 @@ function getAlgorithmComparison(routeData, constellation) {
     }
 
     return results;
+}
+
+function computeRouteResult(algorithm, sourceId, destinationId) {
+    switch (algorithm) {
+        case 'hop':
+            return dijkstraHopShortestPath(
+                { graph: constellation.networkGraph },
+                sourceId,
+                destinationId
+            );
+        case 'latency':
+            return dijkstraLatencyShortestPath(
+                { graph: constellation.networkGraph },
+                sourceId,
+                destinationId
+            );
+        case 'bandwidth':
+            return widestPathBandwidth(
+                { graph: constellation.networkGraph },
+                sourceId,
+                destinationId
+            );
+        default:
+            return null;
+    }
+}
+
+function buildSatellitePositions(path = []) {
+    return Array.isArray(path)
+        ? path.map((satIdRaw) => {
+            const satId = Number(satIdRaw);
+            const sat = satelliteById.get(satId);
+            const geo = sat?.getGeodeticDegrees();
+            return {
+                id: satId,
+                name: sat?.name ?? null,
+                lat: geo?.latitude ?? null,
+                lon: geo?.longitude ?? null,
+                altitude: geo?.altitude ?? null
+            };
+        })
+        : [];
+}
+
+function computeRouteDetails(algorithm, sourceId, destinationId, startLocation, endLocation) {
+    const routeResult = computeRouteResult(algorithm, sourceId, destinationId);
+    if (!routeResult) {
+        return null;
+    }
+
+    const estimatedLatencyMs = algorithm === 'latency'
+        ? routeResult.totalLatency
+        : computePathLatency(routeResult.path, constellation.networkGraph);
+
+    return {
+        algorithm,
+        path: routeResult.path,
+        satellitePositions: buildSatellitePositions(routeResult.path),
+        hops: includeGroundStationHops(routeResult.hops),
+        estimatedLatencyMs,
+        islStats: computeISLStats(routeResult.path, constellation.networkGraph),
+        bottleneckBandwidth: Number.isFinite(Number(routeResult.bottleneckBandwidth))
+            ? Number(routeResult.bottleneckBandwidth)
+            : null,
+        bandwidthUsage: calculateBandwidthUsage(routeResult.path, constellation.networkGraph),
+        pathEfficiency: computePathEfficiencyPercentage(
+            startLocation,
+            endLocation,
+            routeResult.path,
+            constellation.networkGraph,
+            satelliteById
+        ),
+        pathLength: Array.isArray(routeResult.path) ? routeResult.path.length : 0
+    };
 }
 
 async function start() {

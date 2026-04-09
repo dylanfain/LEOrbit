@@ -35,27 +35,22 @@ export function dijkstraLatencyShortestPath(networkState, sourceId, destinationI
     const dist = new Map();
     const prev = new Map();
     const visited = new Set();
+    const heap = new MinHeap();
 
     for (const node of nodes) {
         dist.set(node, Infinity);
+        prev.set(node, null);
     }
     dist.set(sourceId, 0);
+    heap.push({ node: sourceId, cost: 0 });
 
-    while (true) {
-        // Find unvisited node with smallest distance
-        let currentNode = null;
-        let minDist = Infinity;
-        for (const node of nodes) {
-            if (!visited.has(node) && dist.get(node) < minDist) {
-                minDist = dist.get(node);
-                currentNode = node;
-            }
-        }
+    while (heap.size() > 0) {
+        const current = heap.pop();
+        const currentNode = current.node;
+        const currentCost = current.cost;
 
-        if (currentNode === null || minDist === Infinity) {
-            break; // No path exists
-        }
-
+        if (visited.has(currentNode)) continue;
+        if (currentCost > dist.get(currentNode)) continue;
         if (currentNode === destinationId) {
             break; // Found shortest path
         }
@@ -63,27 +58,29 @@ export function dijkstraLatencyShortestPath(networkState, sourceId, destinationI
         visited.add(currentNode);
 
         // Relax edges - use latency instead of hop count
-        const edges = graph.get(String(currentNode)) || graph.get(currentNode) || [];
+        const edges = graph.get(currentNode) || [];
         for (const edge of edges) {
             const neighbor = edge.target;
+            if (visited.has(neighbor)) continue;
+
             const latency = edge.latency || 0;
-            const newDist = dist.get(currentNode) + latency;  // <-- KEY CHANGE: use latency
+            const newDist = dist.get(currentNode) + latency;
 
             if (newDist < dist.get(neighbor)) {
                 dist.set(neighbor, newDist);
                 prev.set(neighbor, currentNode);
+                heap.push({ node: neighbor, cost: newDist });
             }
         }
     }
 
-    // Reconstruct path
-    if (!prev.has(destinationId) && sourceId !== destinationId) {
+    if (!Number.isFinite(dist.get(destinationId))) {
         return null; // No path found
     }
 
     const path = [];
     let current = destinationId;
-    while (current !== undefined) {
+    while (current !== null) {
         path.unshift(current);
         current = prev.get(current);
     }
@@ -97,5 +94,76 @@ export function dijkstraLatencyShortestPath(networkState, sourceId, destinationI
 
 function normalizeGraph(graph) {
     if (graph instanceof Map) return graph;
-    return new Map(Object.entries(graph));
+
+    return new Map(
+        Object.entries(graph).map(([nodeId, edges]) => [
+            Number(nodeId),
+            (edges || []).map((edge) => ({
+                ...edge,
+                target: Number(edge.target)
+            }))
+        ])
+    );
+}
+
+class MinHeap {
+    constructor() {
+        this.data = [];
+    }
+
+    size() {
+        return this.data.length;
+    }
+
+    push(item) {
+        this.data.push(item);
+        this.bubbleUp(this.data.length - 1);
+    }
+
+    pop() {
+        if (this.data.length === 0) return null;
+
+        const min = this.data[0];
+        const last = this.data.pop();
+
+        if (this.data.length > 0) {
+            this.data[0] = last;
+            this.bubbleDown(0);
+        }
+
+        return min;
+    }
+
+    bubbleUp(index) {
+        while (index > 0) {
+            const parent = Math.floor((index - 1) / 2);
+            if (this.data[parent].cost <= this.data[index].cost) break;
+
+            [this.data[parent], this.data[index]] = [this.data[index], this.data[parent]];
+            index = parent;
+        }
+    }
+
+    bubbleDown(index) {
+        const length = this.data.length;
+
+        while (true) {
+            const left = index * 2 + 1;
+            const right = index * 2 + 2;
+            let smallest = index;
+
+            if (left < length && this.data[left].cost < this.data[smallest].cost) {
+                smallest = left;
+            }
+
+            if (right < length && this.data[right].cost < this.data[smallest].cost) {
+                smallest = right;
+            }
+
+            if (smallest === index) break;
+
+            [this.data[index], this.data[smallest]] = [this.data[smallest], this.data[index]];
+            index = smallest;
+        }
+    }
 }

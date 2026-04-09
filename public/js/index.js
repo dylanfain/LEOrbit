@@ -4,6 +4,14 @@ import { loadConstellation } from './satellite-client.js';
 import { LocationService } from './LocationService.js';
 import { createStarfield } from './starfield.js';
 import { PathAnimator } from './PathAnimator.js';
+import {
+    clearRoutePayload,
+    isNarrowScreen,
+    loadRoutePayload,
+    loadRouteUiState,
+    saveRoutePayload,
+    saveRouteUiState
+} from './route-session.js';
 
 // ============== Scene Setup ==============
 const w = window.innerWidth;
@@ -81,15 +89,41 @@ const routeStats = {
     hops: document.getElementById('route-hops'),
     latency: document.getElementById('route-latency')
 };
+const panelToggleButton = document.getElementById('panel-toggle-btn');
 
-let selectedAlgorithm = 'hop';
+const ALGORITHM_KEYS = ['hop', 'latency', 'bandwidth'];
+const ALGORITHM_ROUTE_STYLES = Object.freeze({
+    hop: {
+        label: 'Hop Count',
+        color: new THREE.Color(0xc540ff),
+        pulseColor: new THREE.Color(0xf08cff)
+    },
+    latency: {
+        label: 'Latency',
+        color: new THREE.Color(0xffc740),
+        pulseColor: new THREE.Color(0xffe18f)
+    },
+    bandwidth: {
+        label: 'Bandwidth',
+        color: new THREE.Color(0x40d2ff),
+        pulseColor: new THREE.Color(0x96eaff)
+    }
+});
+const MULTI_ROUTE_HIGHLIGHT_COLOR = new THREE.Color(0xffffff);
+const selectedAlgorithms = new Set(['hop']);
+let currentRouteData = null;
+let isPanelCollapsed = false;
 
 function getDisplayedHopCount(routePayload) {
+    if (typeof routePayload?.hops === 'number') {
+        return routePayload.hops;
+    }
+
     if (Array.isArray(routePayload?.path) && routePayload.path.length > 0) {
         return routePayload.path.length + 1;
     }
 
-    return typeof routePayload?.hops === 'number' ? routePayload.hops : null;
+    return null;
 }
 
 function setRouteStats(hopsText = '-', latencyText = '-') {
@@ -99,6 +133,144 @@ function setRouteStats(hopsText = '-', latencyText = '-') {
     if (routeStats.latency) {
         routeStats.latency.textContent = latencyText;
     }
+}
+
+function getSelectedAlgorithmsList() {
+    return ALGORITHM_KEYS.filter((algorithm) => selectedAlgorithms.has(algorithm));
+}
+
+function getSingleSelectedRoute() {
+    const selected = getSelectedAlgorithmsList();
+    if (selected.length !== 1) {
+        return null;
+    }
+
+    return currentRouteData?.algorithms?.[selected[0]] ?? null;
+}
+
+function updateRouteStatsForSelection() {
+    const route = getSingleSelectedRoute();
+    if (!route) {
+        setRouteStats('-', '-');
+        return;
+    }
+
+    const displayedHops = getDisplayedHopCount(route);
+    const hopsText = displayedHops !== null ? displayedHops.toString() : '-';
+    const latencyText = typeof route.estimatedLatencyMs === 'number'
+        ? route.estimatedLatencyMs.toFixed(2)
+        : '-';
+
+    setRouteStats(hopsText, latencyText);
+}
+
+function renderSelectedRoutes() {
+    pathAnimator.clear();
+    clearHighlightedSatellites();
+
+    const selected = getSelectedAlgorithmsList();
+    updateRouteStatsForSelection();
+
+    if (!currentRouteData || selected.length === 0) {
+        return;
+    }
+
+    highlightSatellitesFromRoutes(currentRouteData, selected);
+
+    const pathSegments = selected.flatMap((algorithm) =>
+        buildRouteSegmentsForAlgorithm(currentRouteData.algorithms?.[algorithm], algorithm)
+    );
+
+    if (pathSegments.length > 0) {
+        pathAnimator.animatePath(pathSegments, {
+            defaultPulseDuration: ROUTE_SEGMENT_TRAVEL_MS,
+            loopDelayMs: ROUTE_LOOP_DELAY_MS
+        });
+    }
+}
+
+function persistRouteUiState() {
+    saveRouteUiState({
+        selectedAlgorithms: getSelectedAlgorithmsList(),
+        panelCollapsed: isPanelCollapsed
+    });
+}
+
+function syncPanelToggleUi() {
+    const isCollapsed = isNarrowScreen() && isPanelCollapsed;
+    document.body.classList.toggle('panel-collapsed', isCollapsed);
+
+    if (panelToggleButton) {
+        panelToggleButton.textContent = isCollapsed ? 'Show Controls' : 'Hide Controls';
+        panelToggleButton.setAttribute('aria-expanded', String(!isCollapsed));
+    }
+}
+
+function setPanelCollapsed(nextValue, { persist = true } = {}) {
+    isPanelCollapsed = Boolean(nextValue);
+    syncPanelToggleUi();
+
+    if (persist) {
+        persistRouteUiState();
+    }
+}
+
+function hydrateRouteFromSession() {
+    const savedRoute = loadRoutePayload();
+    const savedUiState = loadRouteUiState();
+    if (!savedRoute?.startLocation || !savedRoute?.endLocation || !savedRoute?.algorithms) {
+        return;
+    }
+
+    selectedAlgorithms.clear();
+    const restoredAlgorithms = Array.isArray(savedUiState?.selectedAlgorithms) && savedUiState.selectedAlgorithms.length > 0
+        ? savedUiState.selectedAlgorithms
+        : ['hop'];
+
+    restoredAlgorithms.forEach((algorithm) => {
+        if (ALGORITHM_KEYS.includes(algorithm)) {
+            selectedAlgorithms.add(algorithm);
+        }
+    });
+
+    if (selectedAlgorithms.size === 0) {
+        selectedAlgorithms.add('hop');
+    }
+
+    isPanelCollapsed = Boolean(savedUiState?.panelCollapsed);
+    syncPanelToggleUi();
+
+    document.querySelectorAll('.algorithm-btn').forEach((button) => {
+        const algorithm = button.dataset.algorithm;
+        button.classList.toggle('active', Boolean(algorithm && selectedAlgorithms.has(algorithm)));
+    });
+
+    currentRouteData = savedRoute;
+    startLocation = savedRoute.startLocation;
+    endLocation = savedRoute.endLocation;
+
+    const startInput = document.getElementById('start-location');
+    const endInput = document.getElementById('end-location');
+
+    if (startInput && startLocation?.displayName) {
+        startInput.value = startLocation.displayName.split(',')[0];
+    }
+
+    if (endInput && endLocation?.displayName) {
+        endInput.value = endLocation.displayName.split(',')[0];
+    }
+
+    if (Number.isFinite(Number(startLocation?.lat)) && Number.isFinite(Number(startLocation?.lon))) {
+        positionMarkerAtLocation(startMarker, startLocation.lat, startLocation.lon);
+    }
+
+    if (Number.isFinite(Number(endLocation?.lat)) && Number.isFinite(Number(endLocation?.lon))) {
+        positionMarkerAtLocation(endMarker, endLocation.lat, endLocation.lon);
+        lookAtLocation(endLocation.lat, endLocation.lon);
+    }
+
+    renderSelectedRoutes();
+    updateRunButtonState();
 }
 
 // ============== Utility Functions ==============
@@ -153,14 +325,12 @@ const satelliteMeshById = new Map();
 let constellation = null;   // Loaded by loadConstellation()
 
 // ============== Route Highlighting ==============
-const ROUTE_HIGHLIGHT_COLOR = new THREE.Color(0xaa00ff);
 const ROUTE_HIGHLIGHT_SCALE_MULTIPLIER = 2.0;
 const ROUTE_LOOP_DELAY_MS = 750;
 const ROUTE_SEGMENT_TRAVEL_MS = 800;
-const ROUTE_GROUND_LINK_COLOR = ROUTE_HIGHLIGHT_COLOR.clone();
-const ROUTE_PULSE_COLOR = new THREE.Color(0xff4fd8);
 const routeHighlightHaloGeo = new THREE.SphereGeometry(0.01, 12, 12);
 let highlightedSatIds = new Set(); // ids of local meshes highlighted (for UI updates)
+let highlightAlgorithmsBySatId = new Map();
 
 function getAltitudeColor(altitude) {
     const t = Math.max(0, Math.min(1, (altitude - minAltitude) / (maxAltitude - minAltitude)));
@@ -191,10 +361,10 @@ function applyBaseSatelliteStyle(mesh) {
     toggleRouteHighlightHalo(mesh, false);
 }
 
-function ensureRouteHighlightHalo(mesh) {
+function ensureRouteHighlightHalo(mesh, color = MULTI_ROUTE_HIGHLIGHT_COLOR) {
     if (!mesh.userData.routeHighlightHalo) {
         const haloMaterial = new THREE.MeshBasicMaterial({
-            color: ROUTE_HIGHLIGHT_COLOR.clone(),
+            color: color.clone(),
             transparent: true,
             opacity: 0.28,
             blending: THREE.AdditiveBlending,
@@ -207,12 +377,13 @@ function ensureRouteHighlightHalo(mesh) {
         mesh.userData.routeHighlightHalo = halo;
     }
 
+    mesh.userData.routeHighlightHalo.material.color.copy(color);
     return mesh.userData.routeHighlightHalo;
 }
 
-function toggleRouteHighlightHalo(mesh, isVisible) {
+function toggleRouteHighlightHalo(mesh, isVisible, color = MULTI_ROUTE_HIGHLIGHT_COLOR) {
     if (isVisible) {
-        ensureRouteHighlightHalo(mesh).visible = true;
+        ensureRouteHighlightHalo(mesh, color).visible = true;
         return;
     }
 
@@ -221,10 +392,27 @@ function toggleRouteHighlightHalo(mesh, isVisible) {
     }
 }
 
+function getMeshHighlightColor(mesh) {
+    const id = Number(mesh?.userData?.node?.id);
+    const algorithms = highlightAlgorithmsBySatId.get(id);
+
+    if (!algorithms || algorithms.size === 0) {
+        return null;
+    }
+
+    if (algorithms.size > 1) {
+        return MULTI_ROUTE_HIGHLIGHT_COLOR;
+    }
+
+    const [algorithm] = algorithms;
+    return ALGORITHM_ROUTE_STYLES[algorithm]?.color ?? MULTI_ROUTE_HIGHLIGHT_COLOR;
+}
+
 function applyHighlightedSatelliteStyle(mesh) {
-    mesh.material.color.copy(ROUTE_HIGHLIGHT_COLOR);
+    const highlightColor = getMeshHighlightColor(mesh) ?? MULTI_ROUTE_HIGHLIGHT_COLOR;
+    mesh.material.color.copy(highlightColor);
     mesh.scale.setScalar(satelliteScale * ROUTE_HIGHLIGHT_SCALE_MULTIPLIER);
-    toggleRouteHighlightHalo(mesh, true);
+    toggleRouteHighlightHalo(mesh, true, highlightColor);
 }
 
 function isSatHighlighted(mesh) {
@@ -234,6 +422,7 @@ function isSatHighlighted(mesh) {
 
 function clearHighlightedSatellites() {
     highlightedSatIds.clear();
+    highlightAlgorithmsBySatId.clear();
     satelliteMeshes.forEach(applyBaseSatelliteStyle);
 }
 
@@ -275,38 +464,51 @@ function findNearestSatelliteMesh(worldPos, maxDistance = 0.03) {
     return bestMesh;
 }
 
-// Highlight satellites by trusting backend ids first, then positions as fallback
-function highlightSatellitesFromRoute(satelliteIds = [], satellitePositions = []) {
-    highlightedSatIds.clear();
+function addHighlightedSatelliteFromRoute(algorithm, satelliteId, satellitePosition) {
+    if (!satellitePosition) return false;
+    if (!Number.isFinite(Number(satellitePosition.lat)) || !Number.isFinite(Number(satellitePosition.lon))) return false;
 
-    if (!Array.isArray(satellitePositions) || satellitePositions.length === 0) {
+    const v = satPosToVector3(satellitePosition);
+    const id = Number(satelliteId);
+    let mesh = Number.isFinite(id) ? satelliteMeshById.get(id) : null;
 
-        satelliteMeshes.forEach(applyBaseSatelliteStyle);
-        return;
+    if (!mesh) {
+        mesh = findNearestSatelliteMesh(v, 0.08);
     }
+    if (!mesh) return false;
+
+    mesh.position.copy(v);
+
+    const meshId = Number(mesh.userData.node.id);
+    highlightedSatIds.add(meshId);
+
+    if (!highlightAlgorithmsBySatId.has(meshId)) {
+        highlightAlgorithmsBySatId.set(meshId, new Set());
+    }
+    highlightAlgorithmsBySatId.get(meshId).add(algorithm);
+
+    return true;
+}
+
+function highlightSatellitesFromRoutes(routePayload, algorithmsToDisplay) {
+    highlightedSatIds.clear();
+    highlightAlgorithmsBySatId.clear();
 
     let matched = 0;
+    let requested = 0;
 
-    for (let i = 0; i < satellitePositions.length; i++) {
-        const pos = satellitePositions[i];
-        if (!pos) continue;
-        if (!Number.isFinite(Number(pos.lat)) || !Number.isFinite(Number(pos.lon))) continue;
+    for (const algorithm of algorithmsToDisplay) {
+        const route = routePayload?.algorithms?.[algorithm];
+        const satelliteIds = route?.path ?? [];
+        const satellitePositions = route?.satellitePositions ?? [];
 
-        const v = satPosToVector3(pos);
-        const id = Number(satelliteIds[i]);
-        let mesh = Number.isFinite(id) ? satelliteMeshById.get(id) : null;
+        requested += satellitePositions.length;
 
-        // fallback if backend id is missing or local mesh id lookup failed
-        if (!mesh) {
-            mesh = findNearestSatelliteMesh(v, 0.08);
+        for (let i = 0; i < satellitePositions.length; i++) {
+            if (addHighlightedSatelliteFromRoute(algorithm, satelliteIds[i], satellitePositions[i])) {
+                matched++;
+            }
         }
-        if (!mesh) continue;
-
-        // backend has authority, trust their mesh
-        mesh.position.copy(v);
-
-        highlightedSatIds.add(Number(mesh.userData.node.id));
-        matched++;
     }
 
     satelliteMeshes.forEach((mesh) => {
@@ -317,14 +519,17 @@ function highlightSatellitesFromRoute(satelliteIds = [], satellitePositions = []
         }
     });
 
-    console.log('[route:highlight] highlighted:', matched, '/', satellitePositions.length);
+    console.log('[route:highlight] highlighted:', matched, '/', requested);
 }
 
 // ============== Route Visualization ==============
-function visualizeRoutePath(satelliteIds, satellitePositions) {
-    if (!Array.isArray(satelliteIds) || satelliteIds.length < 1) return;
-    if (!Array.isArray(satellitePositions) || satellitePositions.length < 1) return;
+function buildRouteSegmentsForAlgorithm(route, algorithm) {
+    const satelliteIds = route?.path;
+    const satellitePositions = route?.satellitePositions;
+    if (!Array.isArray(satelliteIds) || satelliteIds.length < 1) return [];
+    if (!Array.isArray(satellitePositions) || satellitePositions.length < 1) return [];
 
+    const style = ALGORITHM_ROUTE_STYLES[algorithm] ?? ALGORITHM_ROUTE_STYLES.hop;
     const R_EARTH_KM = 6371;
     const pathSegments = [];
     const firstSat = satellitePositions[0];
@@ -334,10 +539,10 @@ function visualizeRoutePath(satelliteIds, satellitePositions) {
         pathSegments.push({
             start: latLonToVector3(startLocation.lat, startLocation.lon, 1.005),
             end: latLonToVector3(firstSat.lat, firstSat.lon, 1 + (Number(firstSat.altitude ?? 0) / R_EARTH_KM)),
-            color: ROUTE_GROUND_LINK_COLOR,
+            color: style.color,
             style: 'line',
             animate: false,
-            opacity: 0.5,
+            opacity: 0.35,
             radius: 0.0035
         });
     }
@@ -352,8 +557,8 @@ function visualizeRoutePath(satelliteIds, satellitePositions) {
         pathSegments.push({
             start: fromPos,
             end: toPos,
-            color: ROUTE_HIGHLIGHT_COLOR,
-            pulseColor: ROUTE_PULSE_COLOR,
+            color: style.color,
+            pulseColor: style.pulseColor,
             style: 'arc',
             animate: true,
             pulseDuration: ROUTE_SEGMENT_TRAVEL_MS
@@ -364,18 +569,15 @@ function visualizeRoutePath(satelliteIds, satellitePositions) {
         pathSegments.push({
             start: latLonToVector3(lastSat.lat, lastSat.lon, 1 + (Number(lastSat.altitude ?? 0) / R_EARTH_KM)),
             end: latLonToVector3(endLocation.lat, endLocation.lon, 1.005),
-            color: ROUTE_GROUND_LINK_COLOR,
+            color: style.color,
             style: 'line',
             animate: false,
-            opacity: 0.5,
+            opacity: 0.35,
             radius: 0.0035
         });
     }
 
-    pathAnimator.animatePath(pathSegments, {
-        defaultPulseDuration: ROUTE_SEGMENT_TRAVEL_MS,
-        loopDelayMs: ROUTE_LOOP_DELAY_MS
-    });
+    return pathSegments;
 }
 
 // ============== Initialize Constellation ==============
@@ -424,6 +626,7 @@ async function initConstellation() {
         // Update UI
         document.getElementById('sat-count').textContent = satelliteMeshes.length.toLocaleString();
         document.getElementById('loading').classList.add('hidden');
+        hydrateRouteFromSession();
 
     } catch (error) {
         console.error('Error initializing constellation:', error);
@@ -454,6 +657,11 @@ runButton?.addEventListener('click', () => {
 });
 
 updateRunButtonState();
+syncPanelToggleUi();
+
+panelToggleButton?.addEventListener('click', () => {
+    setPanelCollapsed(!isPanelCollapsed);
+});
 
 // Send route data to backend
 async function sendRouteToBackend() {
@@ -480,7 +688,7 @@ async function sendRouteToBackend() {
             body: JSON.stringify({
                 start: startLocation,
                 end: endLocation,
-                algorithm: selectedAlgorithm
+                algorithm: 'hop'
             })
         });
         const data = await response.json();
@@ -489,25 +697,16 @@ async function sendRouteToBackend() {
             throw new Error(data.error || 'Route service error');
         }
 
-        const displayedHops = getDisplayedHopCount(data);
-        const hopsText = displayedHops !== null ? displayedHops.toString() : '-';
-        const latencyText = typeof data.estimatedLatencyMs === 'number'
-            ? data.estimatedLatencyMs.toFixed(2)
-            : '-';
-
-        setRouteStats(hopsText, latencyText);
-        console.log('Route computed:', {
-            hops: displayedHops,
-            latencyMs: data.estimatedLatencyMs,
-            path: data.path
-        });
-
-        // highlight + animate route using backend-provided satellitePositions
-        if (Array.isArray(data.path) && data.path.length > 0) {
-            highlightSatellitesFromRoute(data.path, data.satellitePositions);
-            visualizeRoutePath(data.path, data.satellitePositions);
-        }
+        currentRouteData = data;
+        saveRoutePayload(data);
+        persistRouteUiState();
+        renderSelectedRoutes();
+        console.log('Routes computed:', Object.keys(data.algorithms ?? {}));
     } catch (error) {
+        currentRouteData = null;
+        clearRoutePayload();
+        pathAnimator.clear();
+        clearHighlightedSatellites();
         setRouteStats('-', '-');
         console.error('Failed to send route to backend:', error);
     } finally {
@@ -666,12 +865,18 @@ sizeSlider.addEventListener('input', (e) => {
 const algorithmButtons = document.querySelectorAll('.algorithm-btn');
 algorithmButtons.forEach(button => {
     button.addEventListener('click', (e) => {
-        // Remove active class from all buttons
-        algorithmButtons.forEach(btn => btn.classList.remove('active'));
-        // Add active class to clicked button
-        e.target.classList.add('active');
-        // Update selected algorithm
-        selectedAlgorithm = e.target.dataset.algorithm;
+        const algorithm = e.currentTarget.dataset.algorithm;
+        if (!algorithm) return;
+
+        if (selectedAlgorithms.has(algorithm)) {
+            selectedAlgorithms.delete(algorithm);
+        } else {
+            selectedAlgorithms.add(algorithm);
+        }
+
+        e.currentTarget.classList.toggle('active', selectedAlgorithms.has(algorithm));
+        persistRouteUiState();
+        renderSelectedRoutes();
     });
 });
 
@@ -682,6 +887,7 @@ window.addEventListener('resize', () => {
     camera.aspect = newW / newH;
     camera.updateProjectionMatrix();
     renderer.setSize(newW, newH);
+    syncPanelToggleUi();
 });
 
 // ============== Animation Loop ==============
