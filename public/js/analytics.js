@@ -658,6 +658,18 @@ function renderFromCache() {
     }
 }
 
+let resizeRaf = null;
+
+function handleViewportChange() {
+    hideTooltip();
+
+    if (resizeRaf) cancelAnimationFrame(resizeRaf);
+    resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = null;
+        renderFromCache();
+    });
+}
+
 async function computeAndCacheMetricsForCurrentRoute() {
     const selectedAlgos = getSelectedAlgorithms();
     const ts = state.currentRouteData?.timestamp ?? null;
@@ -734,6 +746,7 @@ async function refreshAll() {
 
 elements.panelViewBtn?.addEventListener('click', () => setViewMode('panel'));
 elements.graphViewBtn?.addEventListener('click', () => setViewMode('graph'));
+window.addEventListener('resize', handleViewportChange);
 
 bindAlgorithmTooltips();
 setViewMode('graph');

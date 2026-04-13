@@ -30,16 +30,16 @@
             --lh: 1.28;
 
             --page-pad: 20px;
-            --tabs-offset: 64px;
         }
 
         html, body {
-            height: 100%;
+            min-height: 100%;
             margin: 0;
             background: black;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             color: var(--text);
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
         }
 
         #star-background {
@@ -50,14 +50,25 @@
             z-index: 0;
         }
 
+        .page-shell {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            padding: 14px var(--page-pad) var(--page-pad);
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
         #top-tabs {
-            position: fixed;
+            position: sticky;
             top: 14px;
-            left: 50%;
-            transform: translateX(-50%);
+            align-self: center;
             display: flex;
             gap: 12px;
             z-index: 30;
+            width: fit-content;
         }
 
         .tab {
@@ -75,29 +86,22 @@
         .tab.active { background: rgba(80, 140, 255, 1); color: #fff; }
 
         .top-row {
-            position: fixed;
-            top: calc(var(--page-pad) + var(--tabs-offset));
-            left: var(--page-pad);
-            right: var(--page-pad);
-            z-index: 20;
-
             display: flex;
             justify-content: space-between;
-            align-items: flex-end;
+            align-items: stretch;
+            flex-wrap: wrap;
             gap: 16px;
-
-            pointer-events: none;
+            z-index: 20;
         }
 
         #ui-panel {
-            pointer-events: auto;
-
             background: var(--panel-bg);
             border: var(--border);
             border-radius: var(--r-md);
             padding: var(--pad);
-            min-width: 280px;
-            max-width: 320px;
+            min-width: min(100%, 280px);
+            max-width: min(100%, 420px);
+            flex: 1 1 320px;
             backdrop-filter: blur(10px);
             box-shadow: var(--shadow);
 
@@ -149,14 +153,14 @@
         }
 
         .view-toggle {
-            pointer-events: auto;
-
             display: inline-flex;
             background: rgba(30, 60, 120, 0.35);
             border: 1px solid rgba(100, 150, 255, 0.25);
             border-radius: 16px;
             padding: 3px;
             flex: 0 0 auto;
+            align-self: flex-end;
+            max-width: 100%;
         }
 
         .view-btn {
@@ -177,22 +181,19 @@
         .view-btn.active { background: rgba(80, 140, 255, 1); color: #fff; }
 
         .main-content {
-            position: fixed;
-            left: var(--page-pad);
-            right: var(--page-pad);
-            bottom: var(--page-pad);
-            top: calc(130px + var(--tabs-offset));
-            z-index: 10;
-
             display: flex;
             flex-direction: column;
+            flex: 1 1 auto;
             min-width: 0;
             min-height: 0;
+            z-index: 10;
         }
 
         .views-shell {
             flex: 1;
             min-height: 0;
+            min-width: 0;
+            min-height: clamp(420px, calc(100vh - 230px), 900px);
             background: rgba(30, 60, 120, 0.28);
             border-radius: 18px;
             border: 1px solid rgba(100, 150, 255, 0.22);
@@ -216,10 +217,10 @@
             height: 100%;
             display: grid;
             gap: 18px;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
             align-items: stretch;
             overflow: auto;
-            padding-right: 6px;
+            padding-right: 2px;
             box-sizing: border-box;
         }
 
@@ -268,16 +269,21 @@
             outline-offset: 2px;
         }
 
-        .metric-tiles { display: grid; gap: 10px; }
+        .metric-tiles {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+        }
 
         .metric-tile {
             background: rgba(5, 10, 40, 0.72);
             border: 1px solid rgba(120, 170, 255, 0.14);
             border-radius: 14px;
             padding: 10px 12px;
-            display: flex;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
             align-items: center;
-            justify-content: space-between;
+            gap: 12px;
             position: relative;
             overflow: hidden;
             min-height: 110px;
@@ -292,7 +298,12 @@
             background: var(--accent);
         }
 
-        .metric-tile-left { display: flex; flex-direction: column; gap: 6px; }
+        .metric-tile-left {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 0;
+        }
 
         .metric-tile-label {
             font-size: var(--fs-11);
@@ -312,10 +323,13 @@
 
         .metric-tile-value {
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            font-size: 24px;
+            font-size: clamp(20px, 3vw, 24px);
             font-weight: 850;
             color: rgba(207, 228, 255, 0.95);
             line-height: var(--lh-tight);
+            text-align: right;
+            max-width: 100%;
+            overflow-wrap: anywhere;
         }
 
         .graph-grid {
@@ -434,7 +448,6 @@
         @media (max-width: 900px) {
             :root {
                 --page-pad: 10px;
-                --tabs-offset: 72px;
             }
 
             #top-tabs {
@@ -448,22 +461,43 @@
             }
 
             .top-row {
-                flex-direction: column;
-                align-items: stretch;
                 gap: 10px;
             }
 
             #ui-panel {
-                min-width: 0;
                 max-width: none;
             }
 
-            .main-content {
-                top: calc(220px + var(--tabs-offset));
+            .view-toggle {
+                align-self: stretch;
+                justify-content: center;
             }
 
             .graph-grid {
                 grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .page-shell {
+                gap: 14px;
+            }
+
+            .views-shell {
+                min-height: 0;
+                padding: 12px;
+            }
+
+            .metric-tiles {
+                grid-template-columns: 1fr;
+            }
+
+            .metric-tile {
+                min-height: 88px;
+            }
+
+            .graph-canvas-wrap {
+                min-height: 220px;
             }
         }
     </style>
@@ -479,6 +513,7 @@
 
 <body>
 <div id="star-background"></div>
+<div class="page-shell">
 
 <div id="top-tabs">
     <a href="index.html" class="tab">Satellite Visualizer</a>
@@ -539,6 +574,8 @@
 
         </div>
     </div>
+</div>
+
 </div>
 
 <div id="algo-tooltip" role="tooltip" aria-hidden="true"></div>
