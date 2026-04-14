@@ -21,7 +21,7 @@ const ALGO_GRAPH_COLORS = Object.freeze({
 const ALGO_DEFINITIONS = Object.freeze({
     'Hop Count': 'Picks the path that uses the fewest satellite-to-satellite steps.',
     'Latency': 'Picks the fastest route overall by choosing the path with the lowest end‑to‑end delay.',
-    'Bandwidth': 'Picks the path that tries to avoid congested/low-capacity links and maximize available throughput.',
+    'Bandwidth': 'Finds the path that maximizes the minimum link capacity along the route, ensuring the weakest link is as strong as possible.',
 });
 
 const RANGE_COLORS = Object.freeze({
