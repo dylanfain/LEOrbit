@@ -272,7 +272,7 @@
         .metric-tiles {
             display: grid;
             gap: 10px;
-            grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+            grid-template-columns: 1fr;
         }
 
         .metric-tile {
@@ -515,66 +515,66 @@
 <div id="star-background"></div>
 <div class="page-shell">
 
-<div id="top-tabs">
-    <a href="index.html" class="tab">Satellite Visualizer</a>
-    <a href="analytics.html" class="tab active">Analytics</a>
-</div>
-
-<div class="top-row">
-    <div id="ui-panel">
-        <h2>Analytics</h2>
-        <div id="active-route-display">
-            <div class="stat-row">
-                <span class="stat-label stat-route">—</span>
-                <span class="stat-value">-</span>
-            </div>
-        </div>
+    <div id="top-tabs">
+        <a href="index.html" class="tab">Satellite Visualizer</a>
+        <a href="analytics.html" class="tab active">Analytics</a>
     </div>
 
-    <div class="view-toggle" role="tablist" aria-label="Dashboard view">
-        <button id="graph-view-btn" class="view-btn" type="button" aria-selected="false">Graph View</button>
-        <button id="panel-view-btn" class="view-btn active" type="button" aria-selected="true">Panel View</button>
-    </div>
-</div>
-
-<div class="main-content">
-    <div class="views-shell">
-        <div class="dash-body">
-            <div id="panel-view">
-                <div id="panel-loader" class="view-loader-overlay"></div>
-                <div id="algo-panels"></div>
-            </div>
-
-            <div id="graph-view">
-                <div id="graph-loader" class="view-loader-overlay"></div>
-
-                <div class="graph-grid">
-                    <div class="graph-card">
-                        <div class="graph-card-title">Hop Count</div>
-                        <div class="graph-card-sub">Lower is better</div>
-                        <div class="graph-canvas-wrap"><canvas id="chart-hops"></canvas></div>
-                    </div>
-                    <div class="graph-card">
-                        <div class="graph-card-title">Avg Latency</div>
-                        <div class="graph-card-sub">Lower is better (ms)</div>
-                        <div class="graph-canvas-wrap"><canvas id="chart-latency"></canvas></div>
-                    </div>
-                    <div class="graph-card">
-                        <div class="graph-card-title">Bandwidth Usage</div>
-                        <div class="graph-card-sub">Lower is better (%)</div>
-                        <div class="graph-canvas-wrap"><canvas id="chart-bandwidth"></canvas></div>
-                    </div>
-                    <div class="graph-card">
-                        <div class="graph-card-title">Path Efficiency</div>
-                        <div class="graph-card-sub">Higher is better (%)</div>
-                        <div class="graph-canvas-wrap"><canvas id="chart-efficiency"></canvas></div>
-                    </div>
+    <div class="top-row">
+        <div id="ui-panel">
+            <h2>Analytics</h2>
+            <div id="active-route-display">
+                <div class="stat-row">
+                    <span class="stat-label stat-route">—</span>
+                    <span class="stat-value">-</span>
                 </div>
             </div>
+        </div>
 
+        <div class="view-toggle" role="tablist" aria-label="Dashboard view">
+            <button id="graph-view-btn" class="view-btn" type="button" aria-selected="false">Graph View</button>
+            <button id="panel-view-btn" class="view-btn active" type="button" aria-selected="true">Panel View</button>
         </div>
     </div>
-</div>
+
+    <div class="main-content">
+        <div class="views-shell">
+            <div class="dash-body">
+                <div id="panel-view">
+                    <div id="panel-loader" class="view-loader-overlay"></div>
+                    <div id="algo-panels"></div>
+                </div>
+
+                <div id="graph-view">
+                    <div id="graph-loader" class="view-loader-overlay"></div>
+
+                    <div class="graph-grid">
+                        <div class="graph-card">
+                            <div class="graph-card-title">Hop Count</div>
+                            <div class="graph-card-sub">Lower is better</div>
+                            <div class="graph-canvas-wrap"><canvas id="chart-hops"></canvas></div>
+                        </div>
+                        <div class="graph-card">
+                            <div class="graph-card-title">Avg Latency</div>
+                            <div class="graph-card-sub">Lower is better (ms)</div>
+                            <div class="graph-canvas-wrap"><canvas id="chart-latency"></canvas></div>
+                        </div>
+                        <div class="graph-card">
+                            <div class="graph-card-title">Bottleneck Bandwidth</div>
+                            <div class="graph-card-sub">Higher is better (%)</div>
+                            <div class="graph-canvas-wrap"><canvas id="chart-bandwidth"></canvas></div>
+                        </div>
+                        <div class="graph-card">
+                            <div class="graph-card-title">Path Efficiency</div>
+                            <div class="graph-card-sub">Higher is better (%)</div>
+                            <div class="graph-canvas-wrap"><canvas id="chart-efficiency"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
 
 </div>
 
