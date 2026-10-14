@@ -1,13 +1,13 @@
 /**
- * Finds the path that maximizes bottleneck bandwidth.
+ * Finds the path that minimizes bandwidth cost.
  *
- * Path bandwidth = minimum edge bandwidth along the path.
- * This algorithm chooses the path whose minimum bandwidth is as large as possible.
+ *
+ * So higher-bandwidth links are preferred because they contribute less cost.
  *
  * @param {Object} networkState - Output of SatelliteConstellation.exportNetworkState()
  * @param {number} sourceId
  * @param {number} destinationId
- * @returns {Object|null} { path: number[], hops: number, bottleneckBandwidth: number } or null
+ * @returns {Object|null} { path: number[], hops: number, totalBandwidthCost: number } or null
  */
 export function widestPathBandwidth(networkState, sourceId, destinationId) {
   if (!Number.isFinite(sourceId) || !Number.isFinite(destinationId)) {
@@ -24,64 +24,67 @@ export function widestPathBandwidth(networkState, sourceId, destinationId) {
     return {
       path: [sourceId],
       hops: 0,
-      bottleneckBandwidth: Infinity
+      totalBandwidthCost: 0
     };
   }
 
   const nodes = collectNodeIds(graph, sourceId, destinationId);
 
-  const bestBandwidth = new Map();
-  const parent = new Map();
-  const finalized = new Set();
-  const heap = new MaxHeap();
+  const dist = new Map();
+  const prev = new Map();
+  const visited = new Set();
+  const heap = new MinHeap();
 
   for (const node of nodes) {
-    bestBandwidth.set(node, -Infinity);
-    parent.set(node, null);
+    dist.set(node, Infinity);
+    prev.set(node, null);
   }
 
-  bestBandwidth.set(sourceId, Infinity);
-  heap.push({ node: sourceId, bandwidth: Infinity });
+  dist.set(sourceId, 0);
+  heap.push({ node: sourceId, cost: 0 });
 
   while (heap.size() > 0) {
     const current = heap.pop();
     const u = current.node;
+    const currentCost = current.cost;
 
-    if (finalized.has(u)) continue;
-    finalized.add(u);
+    if (visited.has(u)) continue;
+    if (currentCost > dist.get(u)) continue;
+
+    visited.add(u);
 
     if (u === destinationId) break;
 
     const edges = graph.get(u) || [];
     for (const edge of edges) {
       const v = Number(edge.target);
-      if (finalized.has(v)) continue;
+      if (visited.has(v)) continue;
 
       const edgeBandwidth = getEdgeBandwidth(edge);
-      if (!Number.isFinite(edgeBandwidth) || edgeBandwidth < 0) continue;
+      if (!Number.isFinite(edgeBandwidth) || edgeBandwidth <= 0) continue;
 
-      const candidateBandwidth = Math.min(bestBandwidth.get(u), edgeBandwidth);
+      const edgeCost = 1 / edgeBandwidth;
+      const newCost = dist.get(u) + edgeCost;
 
-      if (candidateBandwidth > bestBandwidth.get(v)) {
-        bestBandwidth.set(v, candidateBandwidth);
-        parent.set(v, u);
-        heap.push({ node: v, bandwidth: candidateBandwidth });
+      if (newCost < dist.get(v)) {
+        dist.set(v, newCost);
+        prev.set(v, u);
+        heap.push({ node: v, cost: newCost });
       }
     }
   }
 
-  const finalBandwidth = bestBandwidth.get(destinationId);
-  if (!Number.isFinite(finalBandwidth) || finalBandwidth === -Infinity) {
+  if (!Number.isFinite(dist.get(destinationId))) {
     return null;
   }
 
-  const path = buildPath(parent, sourceId, destinationId);
+  const path = buildPath(prev, sourceId, destinationId);
   if (!path) return null;
 
   return {
     path,
     hops: path.length - 1,
-    bottleneckBandwidth: finalBandwidth
+    totalBandwidthCost: Number(dist.get(destinationId).toFixed(6))
   };
 }
 
@@ -98,14 +101,14 @@ function collectNodeIds(graph, sourceId, destinationId) {
   return nodes;
 }
 
-function buildPath(parent, sourceId, destinationId) {
+function buildPath(prev, sourceId, destinationId) {
   const path = [];
   let current = destinationId;
 
   while (current !== null) {
     path.unshift(current);
     if (current === sourceId) break;
-    current = parent.get(current);
+    current = prev.get(current);
   }
 
   return path[0] === sourceId ? path : null;
@@ -144,7 +147,7 @@ function normalizeGraph(graph) {
   return normalized;
 }
 
-class MaxHeap {
+class MinHeap {
   constructor() {
     this.data = [];
   }
@@ -155,59 +158,53 @@ class MaxHeap {
 
   push(item) {
     this.data.push(item);
-    this.#bubbleUp(this.data.length - 1);
+    this.bubbleUp(this.data.length - 1);
   }
 
   pop() {
     if (this.data.length === 0) return null;
 
-    const top = this.data[0];
+    const min = this.data[0];
     const last = this.data.pop();
 
     if (this.data.length > 0) {
       this.data[0] = last;
-      this.#bubbleDown(0);
+      this.bubbleDown(0);
     }
 
-    return top;
+    return min;
   }
 
-  #bubbleUp(index) {
+  bubbleUp(index) {
     while (index > 0) {
       const parent = Math.floor((index - 1) / 2);
-      if (this.data[parent].bandwidth >= this.data[index].bandwidth) break;
+      if (this.data[parent].cost <= this.data[index].cost) break;
 
       [this.data[parent], this.data[index]] = [this.data[index], this.data[parent]];
       index = parent;
     }
   }
 
-  #bubbleDown(index) {
+  bubbleDown(index) {
     const length = this.data.length;
 
     while (true) {
       const left = index * 2 + 1;
       const right = index * 2 + 2;
-      let largest = index;
+      let smallest = index;
 
-      if (
-        left < length &&
-        this.data[left].bandwidth > this.data[largest].bandwidth
-      ) {
-        largest = left;
+      if (left < length && this.data[left].cost < this.data[smallest].cost) {
+        smallest = left;
       }
 
-      if (
-        right < length &&
-        this.data[right].bandwidth > this.data[largest].bandwidth
-      ) {
-        largest = right;
+      if (right < length && this.data[right].cost < this.data[smallest].cost) {
+        smallest = right;
       }
 
-      if (largest === index) break;
+      if (smallest === index) break;
 
-      [this.data[index], this.data[largest]] = [this.data[largest], this.data[index]];
-      index = largest;
+      [this.data[index], this.data[smallest]] = [this.data[smallest], this.data[index]];
+      index = smallest;
     }
   }
 }
