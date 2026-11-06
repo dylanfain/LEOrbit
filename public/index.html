@@ -36,6 +36,8 @@
 
       --lh-tight: 1.15;
       --lh: 1.28;
+
+      --tabs-offset: 64px;
     }
 
     body {
@@ -47,7 +49,7 @@
 
     #top-tabs {
       position: fixed;
-      top: 20px;
+      top: 14px;
       left: 50%;
       transform: translateX(-50%);
       display: flex;
@@ -76,7 +78,7 @@
 
     #ui-panel {
       position: fixed;
-      top: 20px;
+      top: calc(20px + var(--tabs-offset));
       left: 20px;
       background: var(--panel-bg);
       border: var(--border);
@@ -87,10 +89,64 @@
       max-width: 320px;
       backdrop-filter: blur(10px);
       box-shadow: var(--shadow);
-      max-height: calc(100vh - 40px);
+      max-height: calc(100vh - 40px - var(--tabs-offset));
       overflow-y: auto;
       font-size: var(--fs-13);
       line-height: var(--lh);
+      transition: transform 0.25s ease, opacity 0.2s ease;
+    }
+
+    #mobile-controls-toggle {
+      display: none;
+      position: fixed;
+      right: 12px;
+      bottom: 16px;
+      z-index: 35;
+      border: var(--border);
+      border-radius: 999px;
+      background: rgba(18, 35, 70, 0.92);
+      color: #d9ebff;
+      padding: 10px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: var(--lh-tight);
+      backdrop-filter: blur(8px);
+      box-shadow: var(--shadow);
+      cursor: pointer;
+    }
+
+    .route-collapse-toggle {
+      width: 100%;
+      margin: 0 0 10px 0;
+      padding: 8px 10px;
+      border: var(--border-soft);
+      border-radius: var(--r-sm);
+      background: rgba(14, 25, 55, 0.7);
+      color: var(--accent);
+      text-align: left;
+      font-size: var(--fs-12);
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      line-height: var(--lh-tight);
+    }
+
+    .route-collapse-toggle .chevron {
+      transition: transform 0.2s ease;
+    }
+
+    .route-collapse-toggle[aria-expanded="false"] .chevron {
+      transform: rotate(-90deg);
+    }
+
+    .route-collapsible {
+      display: block;
+    }
+
+    .route-collapsible.collapsed {
+      display: none;
     }
 
     #ui-panel h2 {
@@ -553,6 +609,44 @@
       opacity: 0.75;
       line-height: var(--lh);
     }
+
+    @media (max-width: 900px) {
+      :root {
+        --tabs-offset: 72px;
+      }
+
+      #top-tabs {
+        top: 10px;
+        gap: 8px;
+      }
+
+      .tab {
+        padding: 7px 12px;
+        font-size: 12px;
+      }
+
+      #ui-panel {
+        top: calc(8px + var(--tabs-offset));
+        left: 10px;
+        right: 10px;
+        min-width: 0;
+        max-width: none;
+        max-height: 54vh;
+        padding: 12px;
+      }
+
+      #ui-panel.mobile-hidden {
+        transform: translateY(calc(-100% - 18px));
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #mobile-controls-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+    }
   </style>
   <script type="importmap">
     {
@@ -593,6 +687,13 @@
   <div class="section-divider"></div>
   <div class="section-title">Route Selection</div>
 
+  <button id="route-selection-toggle" class="route-collapse-toggle" aria-expanded="true" aria-controls="route-selection-content" type="button">
+    <span>Route Inputs</span>
+    <span class="chevron">▾</span>
+  </button>
+
+  <div id="route-selection-content" class="route-collapsible">
+
   <div class="location-input-wrapper">
     <label>
       <span class="marker-dot start"></span>
@@ -623,6 +724,7 @@
   </div>
 
   <div class="run-hint">Select both locations, then click Run to compute the path.</div>
+  </div>
 
   <div class="section-divider"></div>
   <div class="section-title">Display Settings</div>
@@ -675,6 +777,8 @@
     </div>
   </div>
 </div>
+
+<button id="mobile-controls-toggle" type="button" aria-expanded="true" aria-controls="ui-panel">Hide Controls</button>
 
 <script type="module" src="js/index.js"></script>
 </body>

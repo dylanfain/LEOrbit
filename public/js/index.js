@@ -5,6 +5,8 @@ import { LocationService } from './LocationService.js';
 import { createStarfield } from './starfield.js';
 import { PathAnimator } from './PathAnimator.js';
 
+const LAST_ROUTE_STORAGE_KEY = 'leorbit.lastRoute.v1';
+
 // ============== Scene Setup ==============
 const w = window.innerWidth;
 const h = window.innerHeight;
@@ -98,6 +100,14 @@ function setRouteStats(hopsText = '-', latencyText = '-') {
     }
     if (routeStats.latency) {
         routeStats.latency.textContent = latencyText;
+    }
+}
+
+function persistLatestRoute(routePayload) {
+    try {
+        localStorage.setItem(LAST_ROUTE_STORAGE_KEY, JSON.stringify(routePayload));
+    } catch {
+        // ignore storage failures
     }
 }
 
@@ -439,7 +449,27 @@ let startLocation = null;
 let endLocation = null;
 
 const runButton = document.getElementById('run-route');
+const uiPanel = document.getElementById('ui-panel');
+const mobileControlsToggle = document.getElementById('mobile-controls-toggle');
 let routeLoading = false;
+
+function isMobileViewport() {
+    return window.matchMedia('(max-width: 900px)').matches;
+}
+
+function setMobilePanelHidden(hidden) {
+    if (!uiPanel || !mobileControlsToggle) return;
+    uiPanel.classList.toggle('mobile-hidden', hidden);
+    mobileControlsToggle.textContent = hidden ? 'Show Controls' : 'Hide Controls';
+    mobileControlsToggle.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+}
+
+if (mobileControlsToggle) {
+    mobileControlsToggle.addEventListener('click', () => {
+        const hidden = uiPanel?.classList.contains('mobile-hidden');
+        setMobilePanelHidden(!hidden);
+    });
+}
 
 function updateRunButtonState() {
     if (!runButton) return;
@@ -496,6 +526,7 @@ async function sendRouteToBackend() {
             : '-';
 
         setRouteStats(hopsText, latencyText);
+        persistLatestRoute(data);
         console.log('Route computed:', {
             hops: displayedHops,
             latencyMs: data.estimatedLatencyMs,
@@ -506,6 +537,10 @@ async function sendRouteToBackend() {
         if (Array.isArray(data.path) && data.path.length > 0) {
             highlightSatellitesFromRoute(data.path, data.satellitePositions);
             visualizeRoutePath(data.path, data.satellitePositions);
+
+            if (isMobileViewport()) {
+                setMobilePanelHidden(true);
+            }
         }
     } catch (error) {
         setRouteStats('-', '-');
@@ -625,6 +660,25 @@ const altitudeLegend = document.getElementById('altitude-legend');
 const starsToggle = document.getElementById('stars-toggle');
 const sizeSlider = document.getElementById('sat-size');
 const sizeValue = document.getElementById('size-value');
+const routeSelectionToggle = document.getElementById('route-selection-toggle');
+const routeSelectionContent = document.getElementById('route-selection-content');
+
+function setRouteSectionCollapsed(collapsed) {
+    if (!routeSelectionToggle || !routeSelectionContent) return;
+    routeSelectionToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    routeSelectionContent.classList.toggle('collapsed', collapsed);
+}
+
+if (routeSelectionToggle && routeSelectionContent) {
+    routeSelectionToggle.addEventListener('click', () => {
+        const isExpanded = routeSelectionToggle.getAttribute('aria-expanded') === 'true';
+        setRouteSectionCollapsed(isExpanded);
+    });
+
+    if (window.matchMedia('(max-width: 900px)').matches) {
+        setRouteSectionCollapsed(true);
+    }
+}
 
 satColorPicker.addEventListener('input', (e) => {
     const hexColor = e.target.value;

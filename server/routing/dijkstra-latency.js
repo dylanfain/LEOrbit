@@ -66,7 +66,9 @@ export function dijkstraLatencyShortestPath(networkState, sourceId, destinationI
         const edges = graph.get(String(currentNode)) || graph.get(currentNode) || [];
         for (const edge of edges) {
             const neighbor = edge.target;
-            const latency = edge.latency || 0;
+            const latency = Number.isFinite(Number(edge.latency))
+                ? Number(edge.latency)
+                : (Number(edge.distance) / 299792.458);
             const newDist = dist.get(currentNode) + latency;  // <-- KEY CHANGE: use latency
 
             if (newDist < dist.get(neighbor)) {
